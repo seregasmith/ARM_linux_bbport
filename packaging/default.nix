@@ -20,12 +20,17 @@ let
   wanted = [
     "run.sh" "out" "out/bb-probe" "out/bb-gpu-capabilities" "out/gpu" "out/gpu/libbbgpu.so" "tools"
   ] ++ lib.optionals arm [ "out/fex" "out/fex/libbbcpu.so" ] ++ assetDirs;
+  # DLSS (a build with DLSS_SDK_ROOT): the bridge, NVIDIA's runtime library and its license, as
+  # NVIDIA's RTX SDK license allows in an application. Without them the launcher lets the player
+  # choose NVIDIA's library (the bridge is still needed).
+  dlssFiles = [ "out/libbbport_dlss.so" "out/NVIDIA-DLSS-LICENSE.txt" "out/gpu/libbbnet.so" ];
+  isNgx = rel: lib.hasPrefix "out/libnvidia-ngx-dlss.so." rel;
   src = builtins.path {
     name = "bbport-src";
     path = root;
     filter = path: type:
       let rel = lib.removePrefix (toString root + "/") (toString path);
-      in builtins.elem rel wanted
+      in builtins.elem rel wanted || builtins.elem rel dlssFiles || isNgx rel
         || lib.any (dir: lib.hasPrefix (dir + "/") rel) assetDirs;
   };
   python = pkgs.python3.withPackages (ps: [ ps.pygobject3 ]);
@@ -128,14 +133,16 @@ let
       --set-default LC_ALL C.UTF-8 \
       --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [ pkgs.libglvnd pkgs.libx11 pkgs.libxext ]} \
       --set BB_VULKANINFO ${pkgs.vulkan-tools}/bin/vulkaninfo \
+      --run '[ -r "''${SSL_CERT_FILE:-}" ] || export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt; [ -d "''${SSL_CERT_DIR:-}" ] || unset SSL_CERT_DIR' \
   '';
 in
 pkgs.stdenv.mkDerivation {
   pname = "bbport";
   version = "0.1";
   inherit src;
-  nativeBuildInputs = [ pkgs.makeShellWrapper pkgs.wrapGAppsHook4 pkgs.gobject-introspection ];
-  buildInputs = [ pkgs.gtk4 pkgs.libadwaita pkgs.adwaita-icon-theme pkgs.librsvg ]
+  # The hook adds its GTK to the wrapper (typelibs, schemas): ours, not nixpkgs' with GStreamer.
+  nativeBuildInputs = [ pkgs.makeShellWrapper (pkgs.wrapGAppsHook3.override { gtk3 = gtk4; }) pkgs.gobject-introspection ];
+  buildInputs = [ gtk4 libadwaita pkgs.adwaita-icon-theme pkgs.librsvg ]
     ++ map builtins.storePath runtimePaths;
   dontBuild = true;
   dontConfigure = true;
@@ -183,6 +190,20 @@ pkgs.stdenv.mkDerivation {
         install -Dm644 ${mangohud.src}/MangoHud/MangoHud.conf $d/mangohud/MangoHud.conf
       fi
     ''}
+    # Their debug info names the build environment's headers (the full GCC, Vulkan headers): Nix
+    # took those for dependencies, ~300 MB. Symbols stay (crash reports).
+    ${pkgs.binutils-unwrapped}/bin/strip --strip-debug $d/bin/bb-probe $d/bin/bb-gpu-capabilities
+    # The online module (gpu/bbnet), when the build has it.
+    if [ -f out/gpu/libbbnet.so ]; then
+      install -Dm755 out/gpu/libbbnet.so $d/bin/gpu/libbbnet.so
+    fi
+    if [ -f out/libbbport_dlss.so ]; then
+      install -m755 out/libbbport_dlss.so $d/bin/libbbport_dlss.so
+      for ngx in out/libnvidia-ngx-dlss.so.*; do
+        [ -f "$ngx" ] && install -m755 "$ngx" $d/bin/
+      done
+      [ -f out/NVIDIA-DLSS-LICENSE.txt ] && install -m644 out/NVIDIA-DLSS-LICENSE.txt $d/NVIDIA-DLSS-LICENSE.txt
+    fi
     runHook postInstall
   '';
   postFixup = ''

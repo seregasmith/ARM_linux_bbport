@@ -21,11 +21,24 @@ read -r -a nix <<< "${NIX:-nix}"
 include=()
 if [[ -n ${BB_NIXPKGS:-} ]]; then include=(-I "nixpkgs=$BB_NIXPKGS"); fi
 root=$PWD
-# The libraries' store paths (RUNPATH entries and their closures come along).
+# The libraries' store paths: for each library a binary needs (NEEDED), the RUNPATH directory it
+# is found in (their closures come along). Not every RUNPATH entry: built in nix-shell, the
+# binaries list the lib directories of the whole build environment (the full GCC, Vulkan headers,
+# SPIRV-Tools, ...), hundreds of MB the game never loads.
+needed_dirs() {
+    local elf=$1 lib dir
+    local -a rpath
+    mapfile -t rpath < <(readelf -d "$elf" | sed -n 's/.*R\{0,1\}U\{0,1\}N\{0,1\}PATH.*\[\(.*\)\]/\1/p' | tr ':' '\n')
+    for lib in $(readelf -d "$elf" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p'); do
+        for dir in "${rpath[@]}"; do
+            [[ $dir == /nix/store/* && -e $dir/$lib ]] && { echo "$dir"; break; }
+        done
+    done
+}
 {
     echo '['
-    for elf in "${libs[@]}"; do
-        readelf -d "$elf" | sed -n 's/.*\[\(.*\)\]/\1/p' | tr ':' '\n'
+    for elf in "${libs[@]}" $(ls out/libbbport_dlss.so out/gpu/libbbnet.so 2>/dev/null); do
+        needed_dirs "$elf"
     done | grep -o '^/nix/store/[^/]*' | sort -u | grep -v -- '-nix-shell$' | sed 's/.*/  "&"/'
     echo ']'
 } > packaging/runtime-paths.nix
@@ -40,4 +53,8 @@ if [[ ! -e $image && -e ${NP_LOCATION:-$HOME}/.nix-portable$image ]]; then
     image=${NP_LOCATION:-$HOME}/.nix-portable$image
 fi
 install -m755 "$image" "dist/Bloodborne-bbport-$arch.AppImage"
+# A GC root for the package: nix-collect-garbage keeps it, and with it the outputs built here from
+# source (the Vulkan-only Mesa, GTK 4 without GStreamer, libadwaita, SDL3), so the next AppImage
+# does not build them again (only a nixpkgs update does).
+nix-build --impure packaging -o out/nix-roots/bbport > /dev/null
 ls -lh "dist/Bloodborne-bbport-$arch.AppImage"
