@@ -24,6 +24,11 @@ LIBRARY_DIRS = (
     Path("/usr/lib64"), Path("/lib64"), Path("/usr/lib"), Path("/lib"),
     Path("/run/opengl-driver/lib"),
 )
+# The host's EGL vendor files (glvnd). The package's own glvnd looks only in its own store.
+EGL_VENDOR_DIRS = (
+    Path("/usr/share/glvnd/egl_vendor.d"), Path("/etc/glvnd/egl_vendor.d"),
+    Path("/usr/local/share/glvnd/egl_vendor.d"),
+)
 
 
 def elf64(path):
@@ -67,7 +72,8 @@ def host_mesa_override(value, manifest_dirs):
         and "nvidia" not in path.name.lower() for path in files)
 
 
-def configure(env, manifest_dirs=MANIFEST_DIRS, library_dirs=LIBRARY_DIRS):
+def configure(env, manifest_dirs=MANIFEST_DIRS, library_dirs=LIBRARY_DIRS,
+              egl_dirs=EGL_VENDOR_DIRS):
     # Both overrides belong to the user; VK_DRIVER_FILES takes precedence over
     # VK_ICD_FILENAMES. In particular don't replace an explicit Lavapipe setup.
     note = ""
@@ -119,6 +125,14 @@ def configure(env, manifest_dirs=MANIFEST_DIRS, library_dirs=LIBRARY_DIRS):
     env["VK_DRIVER_FILES"] = str(manifest) + (":" + bundled if bundled else "")
     env["LD_LIBRARY_PATH"] = str(libraries) + (
         ":" + env["LD_LIBRARY_PATH"] if env.get("LD_LIBRARY_PATH") else "")
+    # #107: NVIDIA's ICD gave no vkCreateInstance on some hosts (a GTX 1650 laptop on CachyOS)
+    # until glvnd saw the host's EGL vendor files, NVIDIA's first; the package's glvnd only looks
+    # in its own store. The user's own list, or BB_NVIDIA_EGL=0, keeps it as it is.
+    if not env.get("__EGL_VENDOR_LIBRARY_FILENAMES") and env.get("BB_NVIDIA_EGL") != "0":
+        vendors = [p for d in egl_dirs for p in sorted(d.glob("*.json"))]
+        vendors.sort(key=lambda p: "nvidia" not in p.name.lower())
+        if any("nvidia" in p.name.lower() for p in vendors):
+            env["__EGL_VENDOR_LIBRARY_FILENAMES"] = ":".join(str(p) for p in vendors)
     return note + f"Vulkan: host NVIDIA driver {driver}; bundled Mesa drivers also available"
 
 
@@ -189,10 +203,13 @@ def main():
     if "--vulkan-info" in sys.argv[1:]:
         tool = os.environ.get("BB_VULKANINFO", "vulkaninfo")
         os.environ.setdefault("VK_LOADER_DEBUG", "error,warn,driver")
-        for key in ("VK_DRIVER_FILES", "VK_ICD_FILENAMES", "LD_LIBRARY_PATH"):
-            print(f"{key}={os.environ.get(key, '')}", file=sys.stderr, flush=True)
+        # Everything on stdout, with the summary: one file for an issue report (#107: the report
+        # went to stderr and was missing from saved output).
+        for key in ("VK_DRIVER_FILES", "VK_ICD_FILENAMES", "LD_LIBRARY_PATH",
+                    "__EGL_VENDOR_LIBRARY_FILENAMES"):
+            print(f"{key}={os.environ.get(key, '')}", flush=True)
         for line in nvidia_report(os.environ, tool):
-            print(line, file=sys.stderr, flush=True)
+            print(line, flush=True)
         os.execvpe(tool, [tool, "--summary"], os.environ)
     os.execvpe(sys.argv[1], sys.argv[1:], os.environ)
 
