@@ -6,7 +6,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <inttypes.h>
+#if defined(__x86_64__)
 #include <cpuid.h>
+#endif
 #include "runtime.h"
 #include "guest_cpu.h"
 #include "gpu/bbgpu.h"
@@ -49,6 +51,7 @@ static void fail(const char *message) { fprintf(stderr, "ERROR: %s\n", message);
  * them stops at the first one with SIGILL (exit code 132, issue #26), and lzcnt/tzcnt even run as
  * bsr/bsf there, with other results. Said before the game starts; BB_SKIP_CPU_CHECK=1 skips it. */
 static void check_cpu(void) {
+#if defined(__x86_64__)
     const char *skip = getenv("BB_SKIP_CPU_CHECK");
     if (skip && !strcmp(skip, "1")) return;
     unsigned a, b, c, d, leaf1_c = 0, leaf7_b = 0, ext1_c = 0;
@@ -78,6 +81,9 @@ static void check_cpu(void) {
             "these instructions directly: it needs an Intel Haswell (4th generation Core, 2013) or "
             "newer, or an AMD Ryzen. BB_SKIP_CPU_CHECK=1 starts anyway.\n", missing);
     exit(1);
+#endif
+    /* bbport: AArch64 runs the game in FEXCore, which provides AVX, BMI1, MOVBE, LZCNT,
+     * POPCNT and SSE4.2 itself: nothing to check on the host. */
 }
 static uint64_t read64(FILE *f) {
     unsigned char b[8];

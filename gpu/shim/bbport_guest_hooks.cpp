@@ -262,6 +262,16 @@ struct sigaction previous_action {};
 bool Handle(GuestRegs& r) {
     u64* const g = r.gpr;
     const u64 rip = r.rip;
+    // A detour is going in (its int3 stays the fallback while the jump's bytes are written): its
+    // stub runs the site. Detours exist only on x86-64 hosts; elsewhere no stub is ever set.
+    for (const auto& site : native_sites) {
+        if (rip == ImageBase + site.offset) {
+            if (const u64 stub = site.stub.load(std::memory_order_acquire)) {
+                r.rip = stub;
+                return true;
+            }
+        }
+    }
     if (rip == ImageBase + ReleaseCheck) {
         const auto result = static_cast<std::int32_t>(g[GUEST_RAX] & 0xffffffff);
         BbHeapSites::NoteReleaseCheck(std::uint32_t(result));

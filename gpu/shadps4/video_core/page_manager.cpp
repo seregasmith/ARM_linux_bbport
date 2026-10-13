@@ -329,7 +329,7 @@ struct PageManager::Impl {
         }
         if (BbLayer::WriteTraps::Reasons(addr) & BbLayer::WriteTraps::QueryReads) {
             return rasterizer->OnOcclusionPageAccess(
-                addr, u64(static_cast<const ucontext_t*>(context)->uc_mcontext.gregs[REG_RIP]),
+                addr, rip,
                 Common::IsWriteError(context), is_gpu_thread);
         }
         if (Common::IsWriteError(context)) {

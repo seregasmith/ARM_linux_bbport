@@ -108,6 +108,13 @@ let
     });
   icds = lib.concatMapStringsSep ":"
     (name: "${icdMesa name}/share/vulkan/icd.d/${name}_icd.${icdArch}.json") icdNames;
+  # The launcher's GTK without GStreamer (video playback: flite, x265, ... ~200 MB), printing and
+  # the search indexer, which it never uses; libadwaita on top of it.
+  gtk4 = (pkgs.gtk4.override { cupsSupport = false; trackerSupport = false; }).overrideAttrs (old: {
+    buildInputs = lib.filter (p: !(lib.hasPrefix "gst-" (p.pname or ""))) old.buildInputs;
+    mesonFlags = old.mesonFlags ++ [ "-Dmedia-gstreamer=disabled" ];
+  });
+  libadwaita = pkgs.libadwaita.override { inherit gtk4; };
   # Fonts: bundled DejaVu and Adwaita plus the host's usual font directories, but not the host's
   # /etc/fonts: on NixOS it names fonts in the host's /nix/store, which the AppImage hides behind
   # its own store in some environments (Steam's FHS sandbox), and the launcher showed boxes.
@@ -127,7 +134,7 @@ let
   # Environment the closure needs on any host: icon themes, SVG icon loader, fonts (above) and
   # a UTF-8 locale built into glibc.
   common = ''
-      --prefix XDG_DATA_DIRS : ${mangohud}/share:${pkgs.adwaita-icon-theme}/share:${pkgs.hicolor-icon-theme}/share:${pkgs.gtk4}/share/gsettings-schemas/${pkgs.gtk4.name} \
+      --prefix XDG_DATA_DIRS : ${mangohud}/share:${pkgs.adwaita-icon-theme}/share:${pkgs.hicolor-icon-theme}/share:${gtk4}/share/gsettings-schemas/${gtk4.name} \
       --set-default GDK_PIXBUF_MODULE_FILE ${pkgs.librsvg}/${pkgs.gdk-pixbuf.moduleDir}.cache \
       --set-default FONTCONFIG_FILE ${fontsConf} \
       --set-default LC_ALL C.UTF-8 \
@@ -159,12 +166,17 @@ pkgs.stdenv.mkDerivation {
     mkdir -p $d/bin $out/bin
     cp run.sh $d/
     cp -r scripts patches fsr4_shaders launcher $d/
-    mkdir -p $d/tools
-    cp -r tools/fsr4cap $d/tools/
-    rm -rf $d/tools/fsr4cap/__pycache__
-    mkdir -p $d/tools/fsr4cap/bin
-    ln -s ${dxilSpirv}/bin/dxil-spirv $d/tools/fsr4cap/bin/dxil-spirv
-    install -m644 ${fsr4capExe} $d/tools/fsr4cap/bin/fsr4cap.exe
+    # FSR 4.1.1 capture tools (x86-64 only: on AArch64 FSR 4.1.1 cannot run, it needs
+    # VK_VALVE_shader_mixed_float_dot_product, and fsr4cap.exe would need a MinGW cross compiler
+    # built from source).
+    ${lib.optionalString (!arm) ''
+      mkdir -p $d/tools
+      cp -r tools/fsr4cap $d/tools/
+      rm -rf $d/tools/fsr4cap/__pycache__
+      mkdir -p $d/tools/fsr4cap/bin
+      ln -s ${dxilSpirv}/bin/dxil-spirv $d/tools/fsr4cap/bin/dxil-spirv
+      install -m644 ${fsr4capExe} $d/tools/fsr4cap/bin/fsr4cap.exe
+    ''}
     # FSR 4.1.1 models only with BB_PACKAGE_FSR411=1 (see above); otherwise run.sh finds them in
     # the data directory (~/.local/share/bbport/fsr4_411).
     if [ -d fsr4_411 ]; then

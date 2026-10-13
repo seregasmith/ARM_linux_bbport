@@ -16,6 +16,7 @@
 #include <unordered_set>
 #include <sys/mman.h>
 #include <ucontext.h>
+#include "../../../../src/guest_cpu.h"
 #include <map>
 #include <tuple>
 #include <string>
@@ -1421,8 +1422,12 @@ bool LayerTrapHandler(void* context, void* fault_address) {
         if (!layer_trap_armed.erase(block)) {
             return false;
         }
-        const auto* g = static_cast<const ucontext_t*>(context)->uc_mcontext.gregs;
-        layer_trap_hits.emplace_back(block, u64(g[REG_RIP]));
+        // bbport: the faulting instruction, guest code's or the host's (FEXCore on AArch64).
+        GuestRegs regs{};
+        const int in_guest = guest_cpu_signal_regs(context, &regs);
+        layer_trap_hits.emplace_back(block, in_guest == GUEST_CPU_IN_GUEST
+                                                ? regs.rip
+                                                : u64(guest_cpu_host_pc(context)));
     }
     LayerUnprotect(block); // the write runs again, now through
     layer_trap_faults.fetch_add(1, std::memory_order_relaxed);

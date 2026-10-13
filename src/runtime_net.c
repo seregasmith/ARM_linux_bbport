@@ -24,6 +24,15 @@ void runtime_net_configure(const char *app0, const char *serial, const char *tit
 int runtime_net_enabled(void) {
     static int enabled=-1;
     if (enabled<0) { const char *v=getenv("BB_ONLINE"); enabled=v && v[0]=='1'; }
+#if !defined(__x86_64__)
+    /* bbport: the online module calls the game's callbacks (NP, network state, HTTP) as native
+     * function pointers and starts native code on guest threads; on AArch64 the game's code runs
+     * in FEXCore, so those calls need porting (GuestCall) first. Until then: offline. */
+    if (enabled>0) {
+        printf("Online: not available on this CPU yet (the online module is not ported to FEXCore): offline play\n");
+        enabled=0;
+    }
+#endif
     return enabled;
 }
 

@@ -224,7 +224,17 @@ target_link_libraries(fsr4-bench PRIVATE ffx-vulkan::fsr4-v07-vulkan ffx-vulkan:
 
 # bbport online module (gpu/bbnet, libbbnet.so): built when its libraries are there (shell.nix);
 # BB_NET=OFF leaves it out. Without it the port plays offline.
-option(BB_NET "Build the online module (shadNet)" ON)
+# bbport: off by default on AArch64: the module calls into the game directly (src/runtime_net.c
+# keeps online play off there until it is ported to FEXCore). -DBB_NET=ON still builds it.
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+    set(BB_NET_DEFAULT ON)
+else()
+    set(BB_NET_DEFAULT OFF)
+endif()
+option(BB_NET "Build the online module (shadNet)" ${BB_NET_DEFAULT})
+if (NOT BB_NET)
+    message(STATUS "Online module: off (BB_NET=OFF; default on AArch64)")
+endif()
 if (BB_NET)
     find_package(Protobuf CONFIG QUIET)
     find_package(nlohmann_json CONFIG QUIET)

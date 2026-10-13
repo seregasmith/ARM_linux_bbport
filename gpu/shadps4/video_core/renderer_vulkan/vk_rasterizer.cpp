@@ -40,6 +40,7 @@
 #include "video_core/renderer_vulkan/vk_timestamps.h"
 #include "video_core/texture_cache/image_view.h"
 #include "video_core/texture_cache/texture_cache.h"
+#include "bbport_cpu.h"
 
 namespace Vulkan {
 
@@ -1294,13 +1295,13 @@ void Rasterizer::RunDrawPacket(void* context, const u8* data, u32 size) {
         self.buffer_cache.NewPacket();
         const auto& task = *reinterpret_cast<const TaskPacket*>(data);
         if (BbSections::Enabled()) {
-            const u64 t0 = __rdtsc();
+            const u64 t0 = BbCpu::Cycles();
             task.task(self, data + sizeof(TaskPacket));
             void* fn = reinterpret_cast<void*>(task.task);
             for (std::size_t k = 0; k < TaskKinds; ++k) {
                 if (task_kinds[k] == fn || !task_kinds[k]) {
                     task_kinds[k] = fn;
-                    task_cycles[k] += __rdtsc() - t0;
+                    task_cycles[k] += BbCpu::Cycles() - t0;
                     ++task_counts[k];
                     break;
                 }

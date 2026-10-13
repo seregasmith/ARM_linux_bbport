@@ -34,6 +34,7 @@
 #include <mutex>
 #include <pthread.h>
 #include "bbport_cpu.h"
+#include "../../../../src/guest_cpu.h"
 #include <cstring>
 #include <dlfcn.h>
 #include <string>
@@ -2713,11 +2714,14 @@ bool VramTrapHandler(void* context, void* fault_address) {
             return false;
         }
     }
-    const auto* g = static_cast<const ucontext_t*>(context)->uc_mcontext.gregs;
-    const u64 rip = u64(g[REG_RIP]);
+    // bbport: guest registers through guest_cpu.h (FEXCore on AArch64): the faulting
+    // instruction, guest code's or the host's, and the stack the caller is searched on.
+    GuestRegs regs{};
+    const int in_guest = guest_cpu_signal_regs(context, &regs);
+    const u64 rip = in_guest == GUEST_CPU_IN_GUEST ? regs.rip : u64(guest_cpu_host_pc(context));
     constexpr u64 Image = 0x800000000ull, ImageEnd = 0x810000000ull;
     u64 caller = 0;
-    const auto* stack = reinterpret_cast<const u64*>(g[REG_RSP]);
+    const auto* stack = reinterpret_cast<const u64*>(regs.gpr[GUEST_RSP]);
     for (u32 i = 0; i < 48; ++i) {
         if (stack[i] >= Image && stack[i] < ImageEnd) {
             caller = stack[i] - Image;
