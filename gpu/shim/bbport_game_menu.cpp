@@ -552,6 +552,16 @@ void PatchImage(unsigned char* image, std::uint64_t size) {
     if (const char* env = std::getenv("BB_GAME_MENU"); env && env[0] == '0') {
         return;
     }
+#if !defined(__x86_64__)
+    // bbport: the pages detour the game's functions into native code (x86 thunks jumping to C++)
+    // and call the game's functions as native function pointers; on AArch64 the game runs in
+    // FEXCore, so that needs porting (guest_cpu_host_function, GuestCall, guest_cpu_code) first.
+    (void)image;
+    (void)size;
+    std::printf("Game menu: the port's pages in System are not available on this CPU yet; "
+                "its settings are in the overlay menu (Insert or L3+R3)\n");
+    return;
+#endif
     image_base = reinterpret_cast<u64>(image);
     const std::size_t page = std::size_t(sysconf(_SC_PAGESIZE));
     u8* stubs = MapNear(image, size, page);

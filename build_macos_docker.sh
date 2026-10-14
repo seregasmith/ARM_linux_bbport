@@ -115,7 +115,8 @@ RUN mkdir -p /opt/nixpkgs \
  && curl -fsSL "https://github.com/NixOS/nixpkgs/archive/${NIXPKGS_REV}.tar.gz" \
     | tar -xz --strip-components=1 -C /opt/nixpkgs \
  && (command -v git >/dev/null \
-     || nix-env --option sandbox false --option filter-syscalls false -f /opt/nixpkgs -iA git) \
+     || nix-env --option sandbox false --option filter-syscalls false --option build-users-group '' \
+            -f /opt/nixpkgs -iA git) \
  && git config --global --add safe.directory '*'
 ENV NIX_PATH=nixpkgs=/opt/nixpkgs
 WORKDIR /src
@@ -129,9 +130,12 @@ set -euo pipefail
 mode=$1; shift
 cd /src
 # For every nix command here: flakes for `nix bundle` (AppImage), no build sandbox inside Docker,
-# and derivations built from source (Turnip) limited to $BB_JOBS cores, like the compiler.
+# no separate build users (root in a throwaway container: builds do not depend on the image's
+# nixbld group, which a rebuilt or pruned image may lack), and derivations built from source
+# (Turnip) limited to $BB_JOBS cores, like the compiler.
 export NIX_CONFIG="experimental-features = nix-command flakes
 sandbox = false
+build-users-group =
 filter-syscalls = false
 max-jobs = 1
 cores = ${BB_JOBS:-2}"

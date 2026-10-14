@@ -516,6 +516,14 @@ void PatchImage(unsigned char* image, std::uint64_t size) {
     if (!observe && (!env || env[0] != '1')) {
         return;
     }
+#if !defined(__x86_64__)
+    // bbport: the census/observer stubs jump from the game's code into native code; on AArch64
+    // the game runs in FEXCore (see bbport_game_menu.cpp). Diagnostics only: off there.
+    (void)image;
+    (void)size;
+    std::printf("Gnm census: not available on this CPU (x86-64 hosts only)\n");
+    return;
+#endif
     const std::size_t stub_bytes = (Count + 1) * SlotSize; // + the shared exit thunk
     const std::size_t page = std::size_t(sysconf(_SC_PAGESIZE));
     const std::size_t code_bytes = (stub_bytes + page - 1) / page * page;
