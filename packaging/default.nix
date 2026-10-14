@@ -66,21 +66,73 @@ let
   icdNames = if arm then [ "freedreno" "panfrost" "broadcom" "asahi" "radeon" ] else [ "radeon" "intel" ];
   # Mesa 26's Turnip loses the device on the Adreno 740 (SM8550) without these patches. Only
   # freedreno is rebuilt; the other drivers stay the binary cache's Mesa.
+  turnipPatches = [
+    ./mesa-sm8550/0001-add-a830-chip-id.patch
+    ./mesa-sm8550/0001-freedreno-ir3-vulkan-disable-bindless-ubo-const-lowering.patch
+    ./mesa-sm8550/001-fix-freedreno-vulkan.patch
+  ];
+  # BB_TURNIP_SRC: a Mesa source tree for Turnip instead of nixpkgs' release, e.g. a checkout of
+  # whitebelyash/mesa-unified's turnip/gen8 branch (Adreno 8xx work not yet in Mesa) or Mesa main.
+  # The Adreno 830 chip IDs of 0001-add-a830-chip-id.patch are added where the tree lacks them; the
+  # other patches are applied where they apply, skipped where the tree has them already, and a
+  # conflict stops the build. BB_TURNIP_PATCHES=0 builds the tree as it is. Without
+  # BB_TURNIP_SRC the package is unchanged (nixpkgs' Mesa with the patches above).
+  turnipSrc = builtins.getEnv "BB_TURNIP_SRC";
+  turnipPortPatches = builtins.getEnv "BB_TURNIP_PATCHES" != "0";
   turnip = (pkgs.mesa.override {
     galliumDrivers = [ "freedreno" ];
     vulkanDrivers = [ "freedreno" ];
     vulkanLayers = [ ];
     enablePatentEncumberedCodecs = false;
   }).overrideAttrs (old: {
-    patches = old.patches ++ [
-      ./mesa-sm8550/0001-add-a830-chip-id.patch
-      ./mesa-sm8550/0001-freedreno-ir3-vulkan-disable-bindless-ubo-const-lowering.patch
-      ./mesa-sm8550/001-fix-freedreno-vulkan.patch
-    ];
+    patches = old.patches ++ turnipPatches;
     mesonFlags = map (flag: if lib.hasPrefix "-Dtools=" flag then "-Dtools=" else flag) old.mesonFlags
       ++ [ "-Dgallium-va=disabled" ];
     postInstall = old.postInstall + ''
       mkdir -p $opencl $spirv2dxil
+    '';
+  } // lib.optionalAttrs (turnipSrc != "") {
+    version = lib.removeSuffix "\n" (builtins.readFile (/. + turnipSrc + "/VERSION")) + "-src";
+    src = builtins.path {
+      name = "mesa-src";
+      path = /. + turnipSrc;
+      filter = path: type: baseNameOf path != ".git";
+    };
+    # nixpkgs' own patches only (the port's are applied below, where they still apply).
+    patches = old.patches;
+    # Not nixpkgs' check that the tree's GL headers match its mesa-gl-headers (the release's): a
+    # Vulkan-only build of another tree does not use them.
+    postPatch = ''
+      patchShebangs .
+    '' + lib.optionalString turnipPortPatches ''
+      python3 - src/freedreno/common/freedreno_devices.py <<'PY'
+      import re, sys
+      path = sys.argv[1]
+      s = open(path).read()
+      anchor = 'GPUId(chip_id=0xffff44050000, name="Adreno (TM) 830"),'
+      if anchor not in s:
+          sys.exit("bbport: no Adreno 830 entry in freedreno_devices.py (BB_TURNIP_PATCHES=0: none of the port's changes)")
+      added = []
+      for chip in ("0xffff44050001", "0x44050000"):
+          if not re.search(r"chip_id=" + chip + r"\b", s, re.I):
+              s = s.replace(anchor, anchor + "\n        GPUId(chip_id=" + chip + ", name=\"Adreno (TM) 830\"),", 1)
+              added.append(chip)
+      open(path, "w").write(s)
+      print("bbport: Adreno 830 chip IDs", "added: " + ", ".join(added) if added else "already in the tree")
+      PY
+      bb_patch() {
+        if patch -p1 -R --dry-run -s -f < "$1" > /dev/null 2>&1; then
+          echo "bbport: $(basename "$1" | cut -d- -f2-) is already in this Mesa tree"
+        elif patch -p1 --dry-run -s -f < "$1" > /dev/null 2>&1; then
+          patch -p1 -s -f < "$1"
+          echo "bbport: applied $(basename "$1" | cut -d- -f2-)"
+        else
+          echo "bbport: $(basename "$1" | cut -d- -f2-) does not apply to this Mesa tree (BB_TURNIP_PATCHES=0: build without the port's patches)" >&2
+          exit 1
+        fi
+      }
+      bb_patch ${./mesa-sm8550/0001-freedreno-ir3-vulkan-disable-bindless-ubo-const-lowering.patch}
+      bb_patch ${./mesa-sm8550/001-fix-freedreno-vulkan.patch}
     '';
   });
   icdMesa = name: if arm && name == "freedreno" then turnip else pkgs.mesa;

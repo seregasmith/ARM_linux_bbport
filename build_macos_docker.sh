@@ -25,6 +25,12 @@
 #   JOBS          parallel compiler processes (default: picked from Docker's RAM, about 2 GB each).
 #                 If the compiler still gets "Killed" (out of memory): JOBS=2 ./build_macos_docker.sh
 #   GITHUB_TOKEN  optional GitHub token for Nix downloads, if GitHub's API rate limit hits
+#   BB_TURNIP_SRC a Mesa source tree on this Mac for the AppImage's Turnip instead of nixpkgs' Mesa
+#                 release (packaging/default.nix), e.g. a checkout of the turnip/gen8 branch:
+#                   git clone --depth 1 -b turnip/gen8 https://github.com/whitebelyash/mesa-unified
+#                 It is mounted read-only into the container. Only the appimage step uses it.
+#   BB_TURNIP_PATCHES  0: build that tree without the port's Turnip patches (default: applied
+#                 where they apply, Adreno 830 chip IDs added where missing)
 #
 # Works with Docker Desktop, OrbStack or colima. Written for macOS's stock bash 3.2.
 set -eo pipefail
@@ -97,6 +103,17 @@ if [ -z "${JOBS:-}" ]; then
 fi
 case $JOBS in ''|*[!0-9]*|0) die "JOBS must be a positive number";; esac
 echo "==> Source tree: $SRC"
+# A Mesa tree for Turnip (appimage step): mounted read-only at /turnip-src in the container.
+turnip_flags=()
+if [ -n "${BB_TURNIP_SRC:-}" ]; then
+    TURNIP_SRC=$(cd -- "$BB_TURNIP_SRC" 2>/dev/null && pwd) || die "BB_TURNIP_SRC directory not found: $BB_TURNIP_SRC"
+    [ -f "$TURNIP_SRC/VERSION" ] && [ -d "$TURNIP_SRC/src/freedreno/vulkan" ] ||
+        die "BB_TURNIP_SRC is not a Mesa source tree (no VERSION or src/freedreno/vulkan): $TURNIP_SRC"
+    turnip_flags=(-v "$TURNIP_SRC":/turnip-src:ro -e BB_TURNIP_SRC=/turnip-src -e BB_TURNIP_PATCHES="${BB_TURNIP_PATCHES:-}")
+    echo "==> Turnip: Mesa $(cat "$TURNIP_SRC/VERSION") from $TURNIP_SRC" \
+         "(port's patches: $([ "${BB_TURNIP_PATCHES:-}" = 0 ] && echo off || echo where they apply))"
+    [ "$MODE" = appimage ] || echo "    (used by the appimage step only)"
+fi
 echo "==> Docker VM: ${ncpu} CPUs, ${mem_mib} MiB RAM; compiling with JOBS=${JOBS}"
 if [ "$mem_mib" -lt 7500 ]; then
     echo "WARNING: little RAM for this build. Give Docker 8 GB or more" \
@@ -210,6 +227,7 @@ docker run --rm ${tty_flags[@]+"${tty_flags[@]}"} \
     -v "$NIX_VOLUME":/nix -v "$SRC":/src \
     -e BB_LTO="$BB_LTO" -e BB_JOBS="$JOBS" -e GITHUB_TOKEN="${GITHUB_TOKEN:-}" \
     -e SDL_VIDEO_DRIVER=dummy -e SDL_AUDIO_DRIVER=dummy \
+    ${turnip_flags[@]+"${turnip_flags[@]}"} \
     "$IMAGE" bash -c "$INNER" inner "$MODE"
 
 case $MODE in
