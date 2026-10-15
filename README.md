@@ -165,6 +165,29 @@ neither has nor includes.
   `shell.nix`. With [Nix](https://nixos.org) everything comes from `shell.nix` automatically.
 
 ## Build and run
+0. Update sources
+```bash
+git submodule update --init --recursive
+```
+
+### In Docker
+Use the Docker build if you're cross-compiling for a different architecture, aren't on Linux, or don't want to install build dependencies on your machine.
+ - Linux ARM AppImage for the handheld
+```bash
+./build_docker.sh --arch aarch64 appimage
+```
+
+ - Linux x86-64 AppImage for PC
+```bash
+./build_docker.sh --arch x86_64 appimage
+```
+ - build with Mesa from sources
+```bash
+git clone --depth 1 -b turnip/gen8 https://github.com/whitebelyash/mesa-unified mesa-gen8
+BB_TURNIP_SRC=<PATH_TO_MESA_SOURCES> ./build_docker.sh --arch aarch64 appimage
+```
+
+### Linux
 
 ```bash
 git clone --recursive https://github.com/deadinside28/bloodborne_pc.git bbport && cd bbport
