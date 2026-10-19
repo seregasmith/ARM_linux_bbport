@@ -8,7 +8,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifndef _WIN32
 #include <pthread.h>
 #include <sched.h>
 #include <setjmp.h>
@@ -44,6 +43,8 @@ typedef struct GuestThread {
     int detached, finished, joined, host_owned;
     jmp_buf exit_jump;
     struct GuestThread *next;
+    unsigned char *stack_memory; /* the low stack it runs on (Windows: switched to at its start) */
+    size_t stack_bytes;
 } GuestThread;
 
 static pthread_mutex_t lock=PTHREAD_MUTEX_INITIALIZER;
@@ -76,8 +77,32 @@ static void attach(GuestThread *t) {
     guest_cpu_set_gs(tcb);
     current=t;
 }
+/* A thread's record is its ScePthread handle, and the game packs handles into 40-bit fields: the
+ * owner of Bloodborne's hybrid lock (guest 0x20368c0) is masked to 0xffffffffff and then compared
+ * with the whole handle, so a handle above 40 bits never matches its own lock and the thread sleeps
+ * on its semaphore forever (lamp travel hung at loading: issue/PR #193). Records come from low
+ * memory (below 40 bits, zeroed), carved out of 256 KiB pieces; they are never freed. */
+static GuestThread *low_record(void) {
+    static pthread_mutex_t pool_lock=PTHREAD_MUTEX_INITIALIZER;
+    static unsigned char *pool;
+    static size_t left;
+    const size_t size=(sizeof(GuestThread)+63)&~(size_t)63, piece=256*1024;
+    void *record=NULL;
+    pthread_mutex_lock(&pool_lock);
+    if (left<size) {
+        pool=runtime_low_map(piece,PROT_READ|PROT_WRITE);
+        left=pool ? piece : 0;
+    }
+    if (left>=size) { record=pool; pool+=size; left-=size; }
+    pthread_mutex_unlock(&pool_lock);
+    return record;
+}
 static GuestThread *new_thread(void) {
-    GuestThread *t=calloc(1,sizeof(*t));
+    GuestThread *t=low_record();
+    if (!t) {
+        fputs("Runtime: no low memory for a thread record; its handle may not fit 40 bits\n",stderr);
+        t=calloc(1,sizeof(*t));
+    }
     if (!t) return NULL;
     t->attr=(ThreadAttr){.magic=ATTR_MAGIC,.policy=1,.prio=DEFAULT_PRIO,.stack=DEFAULT_STACK,.affinity=0x7f};
     return t;
@@ -102,9 +127,14 @@ void runtime_thread_attach_host(const char *name) {
     GuestThread *t=runtime_thread_current();
     snprintf(t->name,sizeof(t->name),"%s",name ? name : "host");
 }
+void runtime_re_watch_now(uint64_t address);
 void runtime_thread_attach_main(void) {
     GuestThread *t=runtime_thread_current();
     snprintf(t->name,sizeof(t->name),"main");
+    /* BB_TLS_WATCH=<offset from the thread pointer> (reverse engineering): who writes that static
+     * TLS variable of the main thread (reported when the game faults). */
+    const char *watch=getenv("BB_TLS_WATCH");
+    if (watch && *watch) runtime_re_watch_now((uint64_t)(uintptr_t)((unsigned char *)t->tcb+strtoll(watch,NULL,0)));
 }
 static GuestThread *find_thread(void *handle) {
     GuestThread *found=NULL;
@@ -216,14 +246,25 @@ static void set_host_name(const char *name) {
     memcpy(host,name,strnlen(name,sizeof(host)-1));
     pthread_setname_np(pthread_self(),host);
 }
+static void run_guest(void *p) {
+    GuestThread *t=p;
+    const uint64_t argument=(uint64_t)(uintptr_t)t->argument;
+    if (!setjmp(t->exit_jump)) t->result=(void *)(uintptr_t)guest_cpu_call((uintptr_t)t->entry,1,&argument);
+    else guest_cpu_abandon();
+}
 static void *host_start(void *p) {
     GuestThread *t=p;
     attach(t);
     set_host_name(t->name);
     if (t->guest_stack) guest_cpu_thread_stack(t->guest_stack+t->guest_stack_size,t->guest_stack_size);
-    const uint64_t argument=(uint64_t)(uintptr_t)t->argument;
-    if (!setjmp(t->exit_jump)) t->result=(void *)(uintptr_t)guest_cpu_call((uintptr_t)t->entry,1,&argument);
-    else guest_cpu_abandon();
+#ifdef _WIN32
+    /* winpthreads ignores a given stack: the guest runs on its low one, fully committed (the
+     * game's frames skip Windows' guard pages). */
+    if (t->stack_memory) bb_run_on_stack(run_guest,t,t->stack_memory,t->stack_memory+t->stack_bytes);
+    else run_guest(t);
+#else
+    run_guest(t);
+#endif
     runtime_thread_keys_cleanup();
     guest_cpu_thread_end();
     pthread_mutex_lock(&lock); t->finished=1; ++exited; pthread_mutex_unlock(&lock);
@@ -244,8 +285,13 @@ static int32_t create(GuestThread **out,ThreadAttr **attr_slot,GuestEntry entry,
     /* Stacks below 1 TiB as on PS4; guest code may pack stack addresses. */
     size_t stack_bytes=(size_t)stack+STACK_MARGIN;
     void *stack_memory=runtime_low_map(stack_bytes,PROT_READ|PROT_WRITE);
+    t->stack_memory=stack_memory; t->stack_bytes=stack_bytes;
+#ifdef _WIN32
+    pthread_attr_setstacksize(&host,256*1024); /* the host part only: the guest's is stack_memory */
+#else
     if (stack_memory) pthread_attr_setstack(&host,stack_memory,stack_bytes);
     else pthread_attr_setstacksize(&host,stack_bytes);
+#endif
 #ifndef GUEST_CPU_NATIVE
     t->guest_stack=runtime_low_map((size_t)stack,PROT_READ|PROT_WRITE);
     if (!t->guest_stack) { fputs("STOP: cannot allocate a guest thread stack\n",stderr); exit(21); }
@@ -291,6 +337,8 @@ static ABI __attribute__((noreturn)) void thread_exit(void *value) {
     /* No host unwinder: guest frames have no registered FDEs. */
     longjmp(t->exit_jump,1);
 }
+/* pthread_exit for the online module's threads (gpu/bbnet20). */
+__attribute__((noreturn)) void runtime_thread_exit(void *value) { thread_exit(value); }
 static ABI int32_t thread_yield(void) { sched_yield(); return 0; }
 static ABI int32_t thread_get_prio(GuestThread *t,int *prio) {
     if (!find_thread(t)) return ERR(3);
@@ -373,9 +421,3 @@ void runtime_thread_report(void) {
     printf("Runtime: guest threads created=%zu, exited=%zu, joined=%zu\n",created,exited,joined_count);
     pthread_mutex_unlock(&lock);
 }
-#else
-uintptr_t runtime_thread_resolve(const char *name) { (void)name; return 0; }
-void runtime_thread_report(void) {}
-void runtime_thread_attach_main(void) {}
-void runtime_set_main_tls(const void *d,uint64_t f,uint64_t m,uint64_t a) { (void)d;(void)f;(void)m;(void)a; }
-#endif
