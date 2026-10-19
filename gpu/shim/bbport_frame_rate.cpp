@@ -18,6 +18,7 @@
 #include "common/types.h"
 #include "bbport_frame_rate.h"
 #include "bbport_guest_code.h"
+#include "../../src/guest_cpu.h"
 
 #include <sys/mman.h>
 #include <unistd.h>
@@ -253,6 +254,17 @@ bool HookPacerLate() {
     return Detour(0x2034d96, code, sizeof(code), e);
 }
 
+/// bbport: what a stub calls for host function `fn`: the function on x86-64; elsewhere the guest
+/// CPU's stub for it (the stubs are guest code there, run by FEXCore, which cannot jump into host
+/// code itself).
+const void* HostCallTarget(void* fn) {
+#ifdef GUEST_CPU_NATIVE
+    return fn;
+#else
+    return reinterpret_cast<const void*>(guest_cpu_host_function(fn));
+#endif
+}
+
 /// The main loop's step (0x2018e36: `mov dword [rbp - 0x38], 1/30`, its time; rbx the pacer):
 /// FrameStep, then the frame's time.
 bool HookStep() {
@@ -260,7 +272,7 @@ bool HookStep() {
     Emitter e;
     e.SaveVolatile();
     e.Bytes({0x48, 0x89, 0xdf}); // mov rdi, rbx
-    e.CallAbs(reinterpret_cast<const void*>(&FrameStep));
+    e.CallAbs(HostCallTarget(reinterpret_cast<void*>(&FrameStep)));
     e.RestoreVolatile();
     e.StoreToFrame(&live->dt, -0x38);
     e.JmpAbs(image_base + 0x2018e36 + sizeof(code));
@@ -332,6 +344,11 @@ void PatchImage(unsigned char* image, std::uint64_t) {
         std::printf("Frame rate: no memory next to the game's code: 30 FPS\n");
         return;
     }
+#ifndef GUEST_CPU_NATIVE
+    // bbport: the stubs are x86-64 code; on this host the guest CPU (FEXCore) runs them, and only
+    // runs code it was told about ("NoExec instruction in entry block" otherwise).
+    guest_cpu_code(reinterpret_cast<uintptr_t>(stub_page), StubPageSize);
+#endif
     live = new (data) Live{};
     // The mode's rate and BB_FPS_LIMIT (the launcher's frame rate limit): the game's pacer waits for
     // it itself, before the frame's simulation (lower latency than holding finished frames back at
