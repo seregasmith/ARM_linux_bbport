@@ -56,6 +56,7 @@ EN = {
     "\n— игра завершилась (код {}) —\n": "\n— the game exited (code {}) —\n",
     # Launcher language
     "Язык лаунчера": "Launcher language",
+    "Управление лаунчером с геймпада": "Gamepad control of the launcher",
     "Как в системе": "System",
     "Применится после перезапуска лаунчера, пока игра запущена":
         "Applies after restarting the launcher while the game is running",
@@ -519,6 +520,7 @@ PT_BR = {
     "\n— игра завершилась (код {}) —\n": "\n— o jogo foi encerrado (código {}) —\n",
     # Launcher language
     "Язык лаунчера": "Idioma do launcher",
+    "Управление лаунчером с геймпада": "Controlar o launcher com o gamepad",
     "Как в системе": "Sistema",
     "Применится после перезапуска лаунчера, пока игра запущена":
         "Será aplicado após reiniciar o launcher enquanto o jogo estiver em execução",
@@ -789,6 +791,7 @@ ZH_CN = {
     "\n— игра завершилась (код {}) —\n": "\n— 游戏已退出（代码 {}）—\n",
     # Launcher language
     "Язык лаунчера": "启动器语言",
+    "Управление лаунчером с геймпада": "用手柄操作启动器",
     "Как в системе": "跟随系统",
     "Применится после перезапуска лаунчера, пока игра запущена":
         "游戏运行期间更改语言，需要重启启动器后才会生效",
@@ -1141,6 +1144,7 @@ FR_FR = {
     "\n— игра завершилась (код {}) —\n": "\n— le jeu s'est arrêté (code {}) —\n",
     # Langue du lanceur
     "Язык лаунчера": "Langue du lanceur",
+    "Управление лаунчером с геймпада": "Piloter le lanceur à la manette",
     "Как в системе": "Langue du système",
     "Применится после перезапуска лаунчера, пока игра запущена":
         "S'appliquera au redémarrage du lanceur, tant que le jeu est en cours",

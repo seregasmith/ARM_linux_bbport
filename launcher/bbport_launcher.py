@@ -12,6 +12,7 @@ text is the key).
 
 from bbport_launcher_common import *  # noqa: F401,F403
 from bbport_launcher_content import ContentPages
+from bbport_launcher_gamepad import GamepadNavigation
 from bbport_launcher_log import LogPage
 from bbport_launcher_online import OnlinePage
 from bbport_launcher_trophies import TrophiesPage
@@ -20,7 +21,7 @@ from bbport_launcher_upscalers import UpscalerFiles
 
 # The window's pages and lists live in the bbport_launcher_*.py modules (mixins).
 class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFiles,
-                     Adw.ApplicationWindow):
+                     GamepadNavigation, Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="Bloodborne")
         self.set_default_size(1000, 760)
@@ -32,6 +33,7 @@ class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFi
         self.fsr411_build = None  # tools/fsr4cap/build_assets.sh while it runs
         self.build()
         self.connect("close-request", self.on_close)
+        self.start_pad_navigation()  # bbport_launcher_gamepad.py
 
     def build(self):
         """(Re)creates the window's content in the current launcher language."""
@@ -141,6 +143,11 @@ class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFi
                                          UI_LANGUAGES, self.settings.get("ui_language", ""))
         self.ui_language_row.connect("notify::selected", self.on_ui_language)
         launcher.add(self.ui_language_row)
+        # The window driven by a gamepad (bbport_launcher_gamepad.py): handhelds in game mode.
+        self.pad_nav_row = Adw.SwitchRow(title=tr("Управление лаунчером с геймпада"),
+                                         active=self.settings["gamepad_navigation"])
+        self.pad_nav_row.connect("notify::active", lambda *_: self.pad_settings_changed())
+        launcher.add(self.pad_nav_row)
         sec["game"].add(launcher)
 
         game = Adw.PreferencesGroup(title=tr("Игра"))
@@ -266,6 +273,8 @@ class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFi
         self.gamepad_row = Adw.ComboRow(title=tr("Контроллер"))
         # Controller names are long: the selected one is shown in full under the title.
         self.gamepad_row.connect("notify::selected", lambda *_: self.show_gamepad())
+        # Gamepad navigation listens to the chosen controller only while it is connected.
+        self.gamepad_row.connect("notify::selected", lambda *_: self.pad_settings_changed())
         self.gamepad_row.add_suffix(flat_button("view-refresh-symbolic", tr("Обновить список"),
                                                 lambda _button: self.fill_gamepads()))
         self.fill_gamepads()
@@ -520,6 +529,7 @@ class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFi
             "frame_generation": self.frame_gen_row, "show_fps": self.show_fps_row,
             "fps_mode": self.fps_row, "fps_limit": self.limit_row, "low_latency": self.low_latency_row,
             "gpu": self.gpu_row, "draw_pipe": self.pipe_row, "gamepad": self.gamepad_row,
+            "gamepad_navigation": self.pad_nav_row,
             "mouse_look": self.mouse_look_row, "mouse_sensitivity": self.mouse_sensitivity_row,
             "mouse_invert_y": self.mouse_invert_row, "mouse_invert_x": self.mouse_invert_x_row, "button_prompts": self.prompts_row,
             "mods_enabled": self.mods_enabled_row, "mangohud": self.mangohud_row,
@@ -709,12 +719,15 @@ class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFi
             return
         row, _default = self.control_rows[(kind, name)]
         row.set_subtitle(tr("Нажмите клавишу или кнопку… (Esc — отмена)"))
+        # The press is the binding's, not the window's.
+        self.stop_pad_navigation()
 
         def done(proc, result):
             try:
                 _ok, out, _err = proc.communicate_utf8_finish(result)
             except GLib.Error:
                 out = ""
+            self.start_pad_navigation()
             words = (out or "").strip().split(" ", 1)
             if len(words) == 2 and words[0] == kind:
                 value = words[1]
@@ -828,6 +841,7 @@ class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFi
     def store(self):
         s = self.settings
         s["gamepad"] = combo_value(self.gamepad_row)
+        s["gamepad_navigation"] = self.pad_nav_row.get_active()
         s["gamepad_name"] = self.gamepad_row.names[self.gamepad_row.get_selected()]
         s["display"] = combo_value(self.display_row)
         s["gpu"] = combo_value(self.gpu_row)
@@ -954,6 +968,7 @@ class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFi
         self.stream = Gio.DataInputStream.new(self.process.get_stdout_pipe())
         self.read_line()
         self.process.wait_async(None, self.on_exit)
+        self.stop_pad_navigation()  # the game reads the gamepad itself
         self.update_launch_button()
         self.select_section("log")
 
@@ -998,10 +1013,12 @@ class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFi
         self.update_launch_button()
         self.update_game_status()
         self.refresh_trophies()  # what this session unlocked, and the names once decrypted
+        self.start_pad_navigation()
         self.append_log(tr("\n— игра завершилась (код {}) —\n").format(status))
 
     def on_close(self, _window):
         self.store()
+        self.stop_pad_navigation()
         if self.process:
             self.stop_game()
         if self.fsr411_build:

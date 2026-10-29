@@ -272,6 +272,9 @@ layout, e.g. `user/addcont/CUSA03173/SPEXPANSIONDLC03` for The Old Hunters): eac
 reported to the game as an installed add-on.
 
 **Launcher language:** Russian, English, Brazilian Portuguese, Simplified Chinese or French (follows the system language by default).
+**The launcher with a gamepad** (handhelds in game mode): D-pad or left stick moves, A selects,
+B goes back, LB/RB switch sections, the right stick scrolls, Start plays; left/right change a
+number. On by default (*Game → Launcher*); it lets the gamepad go while the game runs.
 The game's own text language is chosen separately, from all 21 languages the game has.
 **GPU choice:** *Mode → GPU* picks the graphics card on machines with two (*Auto* prefers the
 discrete one; stored by name; `BB_GPU_ID=N` from the shell wins).

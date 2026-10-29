@@ -48,6 +48,36 @@
      }
     },
     {
+     "key": "gamepad_navigation",
+     "type": "bool",
+     "store": "settings",
+     "default": true,
+     "platforms": [
+      "linux"
+     ],
+     "title": {
+      "ru": "Управление лаунчером с геймпада",
+      "en": "Gamepad control of the launcher",
+      "pt_BR": "Controlar o launcher com o gamepad",
+      "zh_CN": "用手柄操作启动器",
+      "fr_FR": "Piloter le lanceur à la manette"
+     },
+     "description": {
+      "ru": "Крестовина или левый стик — перемещение, A — выбрать, B — назад, LB/RB — разделы, правый стик — прокрутка, Start — запуск игры.",
+      "en": "D-pad or left stick: move; A: select; B: back; LB/RB: sections; right stick: scroll; Start: play.",
+      "pt_BR": "Direcional ou analógico esquerdo: mover; A: selecionar; B: voltar; LB/RB: seções; analógico direito: rolar; Start: jogar.",
+      "zh_CN": "方向键或左摇杆：移动；A：选择；B：返回；LB/RB：切换分区；右摇杆：滚动；Start：开始游戏。",
+      "fr_FR": "Croix ou stick gauche : se déplacer ; A : choisir ; B : retour ; LB/RB : sections ; stick droit : défiler ; Start : jouer."
+     },
+     "group": {
+      "ru": "Лаунчер",
+      "en": "Launcher",
+      "pt_BR": "Launcher",
+      "zh_CN": "启动器",
+      "fr_FR": "Lanceur"
+     }
+    },
+    {
      "key": "game_dir",
      "type": "special",
      "store": "settings",

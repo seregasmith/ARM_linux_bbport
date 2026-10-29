@@ -8,7 +8,8 @@
  * launcher's controls (below). --device: "vendorID<tab>name" of the GPU the game takes (run.sh:
  * memory model and driver workarounds by vendor and chip). --gpus: every GPU in Vulkan's order
  * (BB_GPU_ID is the index), "index<tab>vendorID<tab>type<tab>name<tab>1 for the one the port takes
- * by itself" per line (the launcher's GPU list). */
+ * by itself" per line (the launcher's GPU list). --pad-events: gamepad presses for the launcher's
+ * own navigation (below). */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -207,12 +208,177 @@ static int read_input(const char *kind) {
     return 0;
 }
 
+/* --pad-events [GUID]: gamepad presses for the launcher's gamepad navigation, one line each:
+ * "down NAME [LABEL]" and "up NAME". NAME: SDL's button name (a, b, x, y by position: south,
+ * east, west, north; dpup, dpdown, dpleft, dpright, leftshoulder, rightshoulder, back, start,
+ * guide, leftstick, rightstick, ...), lefttrigger / righttrigger, or a stick direction (left-up,
+ * left-down, left-left, left-right, right-up, ...). LABEL, for the face buttons where SDL knows
+ * it: what the button says (A, B, X, Y, cross, circle, square, triangle; Nintendo layouts have A
+ * on the east button). "reset" when a gamepad comes or goes: whatever was held is let go. With
+ * GUID only that gamepad while it is connected (issue #15: wheels and other controllers), else
+ * every one. "tick" every 2 s: once the launcher is gone the write fails and the helper ends. */
+#define PAD_SLOTS 16
+typedef struct {
+    SDL_JoystickID id;
+    SDL_Gamepad *pad;
+    char guid[33];
+    int axis[SDL_GAMEPAD_AXIS_COUNT]; /* -1, 0, 1: the stick direction or trigger held */
+} PadSlot;
+
+static int pad_line(const char *verb, const char *name, const char *label) {
+    if (label) {
+        printf("%s %s %s\n", verb, name, label);
+    } else if (name) {
+        printf("%s %s\n", verb, name);
+    } else {
+        printf("%s\n", verb);
+    }
+    return fflush(stdout) == 0 && !ferror(stdout);
+}
+
+static const char *pad_axis_name(int axis, int direction) {
+    switch (axis) {
+    case SDL_GAMEPAD_AXIS_LEFTX: return direction < 0 ? "left-left" : "left-right";
+    case SDL_GAMEPAD_AXIS_LEFTY: return direction < 0 ? "left-up" : "left-down";
+    case SDL_GAMEPAD_AXIS_RIGHTX: return direction < 0 ? "right-left" : "right-right";
+    case SDL_GAMEPAD_AXIS_RIGHTY: return direction < 0 ? "right-up" : "right-down";
+    case SDL_GAMEPAD_AXIS_LEFT_TRIGGER: return "lefttrigger";
+    case SDL_GAMEPAD_AXIS_RIGHT_TRIGGER: return "righttrigger";
+    default: return NULL;
+    }
+}
+
+static const char *pad_label_name(SDL_GamepadButtonLabel label) {
+    switch (label) {
+    case SDL_GAMEPAD_BUTTON_LABEL_A: return "A";
+    case SDL_GAMEPAD_BUTTON_LABEL_B: return "B";
+    case SDL_GAMEPAD_BUTTON_LABEL_X: return "X";
+    case SDL_GAMEPAD_BUTTON_LABEL_Y: return "Y";
+    case SDL_GAMEPAD_BUTTON_LABEL_CROSS: return "cross";
+    case SDL_GAMEPAD_BUTTON_LABEL_CIRCLE: return "circle";
+    case SDL_GAMEPAD_BUTTON_LABEL_SQUARE: return "square";
+    case SDL_GAMEPAD_BUTTON_LABEL_TRIANGLE: return "triangle";
+    default: return NULL;
+    }
+}
+
+static PadSlot *pad_slot(PadSlot *slots, SDL_JoystickID id) {
+    for (int i = 0; i < PAD_SLOTS; ++i)
+        if (slots[i].pad && slots[i].id == id) return &slots[i];
+    return NULL;
+}
+
+/* The chosen gamepad only while it is connected, else any. */
+static int pad_wanted(const PadSlot *slots, const PadSlot *slot, const char *want) {
+    if (!want || !*want) return 1;
+    int chosen_here = 0;
+    for (int i = 0; i < PAD_SLOTS; ++i)
+        if (slots[i].pad && !SDL_strcasecmp(slots[i].guid, want)) chosen_here = 1;
+    return !chosen_here || !SDL_strcasecmp(slot->guid, want);
+}
+
+static int pad_events(const char *want) {
+    /* No window here: the launcher decides whether its own window takes the presses. */
+    SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+    if (!SDL_Init(SDL_INIT_GAMEPAD)) {
+        fprintf(stderr, "pad-events: %s\n", SDL_GetError());
+        return 1;
+    }
+    PadSlot slots[PAD_SLOTS];
+    SDL_memset(slots, 0, sizeof slots);
+    int alive = pad_line("ready", NULL, NULL);
+    Uint64 next_tick = SDL_GetTicks() + 2000;
+    while (alive) {
+        SDL_Event e;
+        if (SDL_WaitEventTimeout(&e, 500)) {
+            switch (e.type) {
+            case SDL_EVENT_QUIT:
+                alive = 0;
+                break;
+            case SDL_EVENT_GAMEPAD_ADDED:
+                if (!pad_slot(slots, e.gdevice.which)) {
+                    for (int i = 0; i < PAD_SLOTS; ++i) {
+                        if (slots[i].pad) continue;
+                        SDL_Gamepad *pad = SDL_OpenGamepad(e.gdevice.which);
+                        if (!pad) break;
+                        SDL_memset(&slots[i], 0, sizeof slots[i]);
+                        slots[i].id = e.gdevice.which;
+                        slots[i].pad = pad;
+                        SDL_GUIDToString(SDL_GetGamepadGUIDForID(e.gdevice.which), slots[i].guid,
+                                         sizeof slots[i].guid);
+                        alive = pad_line("reset", NULL, NULL);
+                        break;
+                    }
+                }
+                break;
+            case SDL_EVENT_GAMEPAD_REMOVED: {
+                PadSlot *slot = pad_slot(slots, e.gdevice.which);
+                if (slot) {
+                    SDL_CloseGamepad(slot->pad);
+                    SDL_memset(slot, 0, sizeof *slot);
+                    alive = pad_line("reset", NULL, NULL);
+                }
+                break;
+            }
+            case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+            case SDL_EVENT_GAMEPAD_BUTTON_UP: {
+                PadSlot *slot = pad_slot(slots, e.gbutton.which);
+                if (!slot || !pad_wanted(slots, slot, want)) break;
+                const SDL_GamepadButton button = (SDL_GamepadButton)e.gbutton.button;
+                const char *name = SDL_GetGamepadStringForButton(button);
+                if (!name) break;
+                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
+                    alive = pad_line("down", name, pad_label_name(SDL_GetGamepadButtonLabel(slot->pad, button)));
+                } else {
+                    alive = pad_line("up", name, NULL);
+                }
+                break;
+            }
+            case SDL_EVENT_GAMEPAD_AXIS_MOTION: {
+                PadSlot *slot = pad_slot(slots, e.gaxis.which);
+                const int axis = e.gaxis.axis;
+                if (!slot || axis < 0 || axis >= SDL_GAMEPAD_AXIS_COUNT || !pad_axis_name(axis, 1) ||
+                    !pad_wanted(slots, slot, want))
+                    break;
+                /* Half way pressed, a quarter let go (a stick resting a little off centre). */
+                const int value = e.gaxis.value;
+                const int trigger = axis == SDL_GAMEPAD_AXIS_LEFT_TRIGGER || axis == SDL_GAMEPAD_AXIS_RIGHT_TRIGGER;
+                const int held = slot->axis[axis];
+                int now = held;
+                if (held > 0 && value < 8192) now = 0;
+                if (held < 0 && value > -8192) now = 0;
+                if (now == 0) now = value > 16384 ? 1 : value < -16384 && !trigger ? -1 : 0;
+                if (now != held) {
+                    if (held) alive = pad_line("up", pad_axis_name(axis, held), NULL);
+                    if (alive && now) alive = pad_line("down", pad_axis_name(axis, now), NULL);
+                    slot->axis[axis] = now;
+                }
+                break;
+            }
+            default:
+                break;
+            }
+        }
+        if (alive && SDL_GetTicks() >= next_tick) {
+            alive = pad_line("tick", NULL, NULL);
+            next_tick = SDL_GetTicks() + 2000;
+        }
+    }
+    for (int i = 0; i < PAD_SLOTS; ++i)
+        if (slots[i].pad) SDL_CloseGamepad(slots[i].pad);
+    SDL_Quit();
+    return 0;
+}
+
 int main(int argc, char **argv) {
     if (argc > 1 && !strcmp(argv[1], "--read-input")) {
         return read_input(argc > 2 ? argv[2] : "any");
     }
     if (argc > 1 && !strcmp(argv[1], "--gamepads")) {
         return list_gamepads();
+    }
+    if (argc > 1 && !strcmp(argv[1], "--pad-events")) {
+        return pad_events(argc > 2 ? argv[2] : NULL);
     }
     if (argc > 1 && !strcmp(argv[1], "--displays")) {
         return list_displays();

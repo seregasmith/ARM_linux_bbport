@@ -192,6 +192,8 @@ DEFAULTS = {
     "present_mode": "Mailbox",
     "gamepad": "",
     "gamepad_name": "",
+    # The launcher window driven by a gamepad (bbport_launcher_gamepad.py).
+    "gamepad_navigation": True,
     "display": "",
     # The GPU by its Vulkan name ("" = the port's choice: a discrete one first).
     "gpu": "",

@@ -99,7 +99,7 @@ What players and the launchers set. The menu, bbport.ini and the launcher write 
 | `BB_UPSCALE_PRESET` | the upscaler quality preset (the menu's) |
 | `BB_USER_NAME` | the PS4 user name (default Hunter) |
 
-## Tuning (230)
+## Tuning (231)
 
 Defaults to change on a machine where they misbehave, workarounds, and switches that turn a fix off for comparison.
 
@@ -182,6 +182,7 @@ Defaults to change on a machine where they misbehave, workarounds, and switches 
 | `BB_GUEST_VRAM` | =1 (experiment): direct memory in VRAM mapped through the PCI BAR |
 | `BB_GUEST_VRAM_RANGES` | =lo-hi,...: physical ranges for BB_GUEST_VRAM (default: the graphics heaps) |
 | `BB_GX_COMMAND_HEAP` | =0: without the larger GX command heap patch (patches.py) |
+| `BB_GX_GUARD` | =1 (ARM, FEXCore): the GX command heap guard (#162) as a guest hook; off by default there, untested |
 | `BB_GX_QUERY_GUARD` | =0: without the GX query creation guard |
 | `BB_HEAP_GROW` | =0: the graphics heap whole from the start instead of growing on demand |
 | `BB_HEAP_GROW_AHEAD` | =N (default 2, 0 off): heap pieces made ahead |
@@ -654,7 +655,7 @@ Passed between the launchers, run.py / run.sh and the game. Not meant to be set 
 | `BB_USER_DIR` | the user folder (saves, settings; set by run.py) |
 | `BB_VBLANK_HZ` | =N (default 60, 0: 480): the guest vblank rate (1000 for uncapped; set by run.py) |
 
-## Build (14)
+## Build (18)
 
 Read by the build and packaging scripts only.
 
@@ -671,6 +672,10 @@ Read by the build and packaging scripts only.
 | `BB_FSR4_TIERS` | FSR 4 v07 asset tiers to download (tools/fetch_fsr4_assets.sh) |
 | `BB_IN_NIX_SHELL` | internal to run.sh: already inside the nix shell |
 | `BB_LTO` | =1: link-time optimization (packaging) |
+| `BB_MANGOHUD_SRC` | =path: a MangoHud 0.8.4 tree with its subprojects fetched, bundled instead of nixpkgs' (packaging) |
+| `BB_NIXPKGS` | =path: the nixpkgs the build used, when not <nixpkgs> (packaging/appimage.sh) |
 | `BB_PACKAGE_FSR411` | =1: the AppImage carries FSR 4.1.1 models (never in public packages) |
 | `BB_PGO` | =generate / use: profile-guided optimization (CMake option) |
 | `BB_PGO_DIR` | the PGO profile folder (CMake option) |
+| `BB_TURNIP_PATCHES` | =0: the Turnip tree of BB_TURNIP_SRC built without the port's patches (ARM packaging) |
+| `BB_TURNIP_SRC` | =path: a Mesa source tree for Turnip instead of nixpkgs' release (ARM packaging) |
