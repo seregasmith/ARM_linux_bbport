@@ -27,6 +27,8 @@ R GuestCall(R (*fn)(P...), A... args) {
         guest_cpu_call(reinterpret_cast<std::uintptr_t>(fn), sizeof...(P), packed);
     if constexpr (std::is_void_v<R>) {
         return;
+    } else if constexpr (std::is_same_v<R, bool>) {
+        return (result & 0xff) != 0; // AL only: the rest of RAX is not part of the result
     } else if constexpr (std::is_pointer_v<R>) {
         return reinterpret_cast<R>(static_cast<std::uintptr_t>(result));
     } else {

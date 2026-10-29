@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: Copyright 2026 bbport contributors
 // SPDX-License-Identifier: GPL-2.0-or-later
 // bbport: the CPU's time stamp counter, read in order with the code around it. Other hosts than
 // x86-64: the guest's counter (guest_cpu.h), the one the game's own RDTSC reads in FEXCore, at the
