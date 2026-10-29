@@ -21,6 +21,11 @@ void runtime_memory_set_gpu_hooks(void (*)(uintptr_t, uint64_t),
 void runtime_thread_attach_host(const char*) {}
 void runtime_memory_gpu_protect(uintptr_t, uint64_t, int, int) { std::abort(); }
 void runtime_restart() { std::abort(); }
+int runtime_snapshot_enabled() { return 0; }
+int64_t runtime_snapshot_created() { return 0; }
+void runtime_snapshot_backup_start() { std::abort(); }
+int runtime_snapshot_status() { return 0; }
+int runtime_snapshot_queue_restore() { std::abort(); }
 uint64_t runtime_process_time_counter() { return runtime_process_time_us() * 1000; }
 int32_t* runtime_errno() { std::abort(); }
 int runtime_memory_write_backing(uintptr_t, const void*, uint64_t) { std::abort(); }

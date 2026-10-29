@@ -140,6 +140,22 @@ int runtime_savedata_active_slot(char *dir, size_t size);
 void runtime_savedata_configure(const char *title);
 uintptr_t runtime_savedata_resolve(const char *name);
 void runtime_savedata_report(void);
+/* Changes to the save files, for the save point copied in the game (runtime_file.c): called with
+ * 1 before a change and 0 after it. The activity: the save files open for writing plus the changes
+ * in progress (0: none), with the count of changes and the time since the last one ended. */
+void runtime_file_save_change(int begin);
+int runtime_file_save_activity(uint64_t *changes, uint64_t *quiet_ms);
+/* The save point for the overlay menu (runtime_savedata.c, runtime_snapshot.h), with the
+ * launcher's switch (BB_SAVE_SNAPSHOTS=1). Status: RUNTIME_SNAPSHOT_*, or a SNAPSHOT_* error of the
+ * last backup. The queued restore is applied at the next start: runtime_restart() after it. */
+#define RUNTIME_SNAPSHOT_IDLE 0
+#define RUNTIME_SNAPSHOT_WORKING 1
+#define RUNTIME_SNAPSHOT_DONE 2
+int runtime_snapshot_enabled(void);
+int64_t runtime_snapshot_created(void);
+void runtime_snapshot_backup_start(void);
+int runtime_snapshot_status(void);
+int runtime_snapshot_queue_restore(void);
 void runtime_thread_attach_host(const char *name);
 /* The game's libc.prx where it was linked (image + module base), 0 before or without it. */
 extern uintptr_t runtime_libc_base;

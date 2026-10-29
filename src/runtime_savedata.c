@@ -8,6 +8,7 @@
  * Metadata lives beside the directory so the guest's own files are untouched. */
 #define _GNU_SOURCE
 #include "runtime.h"
+#include "runtime_snapshot.h"
 #include "../gpu/shim/bb_env.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,9 +17,13 @@
 #include <time.h>
 #include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <ftw.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#ifndef _WIN32
+#include <sys/file.h>
+#endif
 
 #define ERR_PARAMETER ((int32_t)0x809F0000)
 #define ERR_NOT_INITIALIZED ((int32_t)0x809F0001)
@@ -100,9 +105,91 @@ static void bloodborne_sound_hack(void) {
     }
     closedir(dir);
 }
+/* bbport: the save point (save scumming, runtime_snapshot.h), with the launcher's switch
+ * (BB_SAVE_SNAPSHOTS=1): the overlay menu's actions below, and at start the lock and the restore
+ * queued from the menu before its restart. The lock is held for as long as the game runs: the
+ * launcher (scripts/save_snapshots.py) changes no saves while it is taken. */
+static pthread_mutex_t snapshot_lock=PTHREAD_MUTEX_INITIALIZER;
+static int snapshot_status=RUNTIME_SNAPSHOT_IDLE, snapshot_working;
+static int64_t snapshot_time=-1; /* the save point's time, cached for the menu (-1: read again) */
+static void snapshot_start(void) {
+    const char *user=runtime_file_user_dir();
+#ifndef _WIN32
+    char path[700];
+    snprintf(path,sizeof(path),"%s/.bbport-game.lock",user);
+    int fd=open(path,O_RDWR|O_CREAT|O_CLOEXEC,0644);
+    if (fd>=0 && flock(fd,LOCK_EX|LOCK_NB)) {
+        printf("Runtime: another game holds %s (two games with one saves folder)\n",path);
+        close(fd);
+    } /* else kept open, locked, until the process ends (or runtime_restart closes it) */
+#endif
+    if (!bb_env_on("BB_SAVE_SNAPSHOTS")) return;
+    const int r=snapshot_apply_pending(user,(int64_t)time(NULL),SNAPSHOT_PENDING_MAX_AGE);
+    if (r==1) printf("Runtime: save point restored (the saves before it are the undo copy)\n");
+    else if (r<0) printf("Runtime: the save point restore queued in the menu was not done: %s\n",snapshot_error(r));
+}
 void runtime_savedata_configure(const char *title) {
     if (title && *title) snprintf(title_id,sizeof(title_id),"%s",title);
+    snapshot_start(); /* before the sound hack and before the game reads its saves */
     bloodborne_sound_hack();
+}
+int runtime_snapshot_enabled(void) { return bb_env_on("BB_SAVE_SNAPSHOTS"); }
+int64_t runtime_snapshot_created(void) {
+    int64_t t=__atomic_load_n(&snapshot_time,__ATOMIC_ACQUIRE);
+    if (t<0) {
+        t=snapshot_created(runtime_file_user_dir(),0);
+        __atomic_store_n(&snapshot_time,t,__ATOMIC_RELEASE);
+    }
+    return t;
+}
+int runtime_snapshot_status(void) { return __atomic_load_n(&snapshot_status,__ATOMIC_ACQUIRE); }
+/* After the copy: true when the game changed none of its saves while it was made. */
+static int snapshot_unchanged(void *context) {
+    uint64_t changes=0;
+    return !runtime_file_save_activity(&changes,NULL) && changes==*(const uint64_t *)context;
+}
+/* The copy waits for a second without changes to the saves (the game's autosave writes several
+ * files) and is made again when they changed during it; given up after about 20 s. */
+static void *snapshot_thread(void *arg) {
+    (void)arg;
+    int r=SNAPSHOT_BUSY;
+    for (int attempt=0; attempt<100 && r==SNAPSHOT_BUSY; ++attempt) {
+        uint64_t changes=0, quiet=0;
+        if (!runtime_file_save_activity(&changes,&quiet) && quiet>=1000) {
+            pthread_mutex_lock(&snapshot_lock);
+            r=snapshot_backup(runtime_file_user_dir(),"game",snapshot_unchanged,&changes);
+            pthread_mutex_unlock(&snapshot_lock);
+        }
+        if (r==SNAPSHOT_BUSY) {
+            struct timespec pause={0,200*1000*1000};
+            nanosleep(&pause,NULL);
+        }
+    }
+    if (r) printf("Runtime: save point not made: %s\n",snapshot_error(r));
+    else printf("Runtime: save point made (%s/savedata-snapshot)\n",runtime_file_user_dir());
+    __atomic_store_n(&snapshot_time,(int64_t)-1,__ATOMIC_RELEASE);
+    __atomic_store_n(&snapshot_status,r ? r : RUNTIME_SNAPSHOT_DONE,__ATOMIC_RELEASE);
+    __atomic_store_n(&snapshot_working,0,__ATOMIC_RELEASE);
+    return NULL;
+}
+void runtime_snapshot_backup_start(void) {
+    if (__atomic_exchange_n(&snapshot_working,1,__ATOMIC_ACQ_REL)) return; /* one at a time */
+    __atomic_store_n(&snapshot_status,RUNTIME_SNAPSHOT_WORKING,__ATOMIC_RELEASE);
+    pthread_t thread;
+    if (pthread_create(&thread,NULL,snapshot_thread,NULL)) {
+        __atomic_store_n(&snapshot_status,SNAPSHOT_IO,__ATOMIC_RELEASE);
+        __atomic_store_n(&snapshot_working,0,__ATOMIC_RELEASE);
+        return;
+    }
+    pthread_detach(thread);
+}
+int runtime_snapshot_queue_restore(void) {
+    pthread_mutex_lock(&snapshot_lock);
+    const int r=snapshot_queue_restore(runtime_file_user_dir(),(int64_t)time(NULL));
+    pthread_mutex_unlock(&snapshot_lock);
+    if (r) printf("Runtime: save point restore not queued: %s\n",snapshot_error(r));
+    else printf("Runtime: save point restore queued: the game restarts and puts the saves back first\n");
+    return r;
 }
 
 static int make_dirs(const char *path) {
@@ -173,8 +260,13 @@ static int32_t mount(int32_t user, const char *title, const DirName *dir, uint32
         if (!slots[i].used && slot<0) slot=i;
     }
     if (slot<0) { pthread_mutex_unlock(&lock); return ERR_MOUNT_FULL; }
-    if (!exists && (make_dirs(host) || make_dirs(meta))) { pthread_mutex_unlock(&lock); return ERR_INTERNAL; }
-    if (!exists) { Param empty={0}; write_param(meta,&empty); }
+    if (!exists) {
+        runtime_file_save_change(1);
+        const int failed=make_dirs(host) || make_dirs(meta);
+        if (!failed) { Param empty={0}; write_param(meta,&empty); }
+        runtime_file_save_change(0);
+        if (failed) { pthread_mutex_unlock(&lock); return ERR_INTERNAL; }
+    }
     slots[slot].used=1;
     snprintf(slots[slot].host,sizeof(slots[slot].host),"%s",host);
     snprintf(slots[slot].meta,sizeof(slots[slot].meta),"%s",meta);
@@ -228,7 +320,9 @@ static ABI int32_t save_set_param(const MountPoint *point, uint32_t type, const 
     case 4: if (size<4) goto bad; memcpy(&p.user_param,buffer,4); break;
     default: goto bad;
     }
+    runtime_file_save_change(1);
     write_param(slots[slot].meta,&p);
+    runtime_file_save_change(0);
     pthread_mutex_unlock(&lock);
     return 0;
 bad:
@@ -243,7 +337,9 @@ static ABI int32_t save_icon(const MountPoint *point, const Icon *icon) {
     int32_t r=ERR_NOT_MOUNTED;
     if (slot>=0) {
         char path[700]; snprintf(path,sizeof(path),"%s/icon0.png",slots[slot].meta);
+        runtime_file_save_change(1);
         r=write_atomic(path,icon->buffer,icon->data_size) ? ERR_INTERNAL : 0;
+        runtime_file_save_change(0);
     }
     pthread_mutex_unlock(&lock);
     return r;
@@ -257,8 +353,10 @@ static ABI int32_t save_delete(const Delete *d) {
     snprintf(meta,sizeof(meta),"%s/%s.sce_sys",base,d->dir->data);
     struct stat st;
     if (stat(host,&st)) return ERR_NOT_FOUND;
+    runtime_file_save_change(1);
     nftw(host,remove_entry,16,FTW_DEPTH|FTW_PHYS);
     nftw(meta,remove_entry,16,FTW_DEPTH|FTW_PHYS);
+    runtime_file_save_change(0);
     printf("Runtime: save data '%s' deleted\n",d->dir->data);
     return 0;
 }
@@ -317,6 +415,7 @@ static ABI int32_t memory_setup(int32_t user, uint64_t size, const Param *param)
     snprintf(dir,sizeof(dir),"%s.memory",base);
     if (make_dirs(dir)) return ERR_INTERNAL;
     pthread_mutex_lock(&lock);
+    runtime_file_save_change(1);
     snprintf(memory_path,sizeof(memory_path),"%s/memory.dat",dir);
     FILE *f=fopen(memory_path,"r+b");
     if (!f) f=fopen(memory_path,"w+b");
@@ -329,6 +428,7 @@ static ABI int32_t memory_setup(int32_t user, uint64_t size, const Param *param)
         fclose(f);
     }
     if (!r && param) write_param(dir,param);
+    runtime_file_save_change(0);
     pthread_mutex_unlock(&lock);
     if (!r) printf("Runtime: save data memory ready (%llu bytes)\n",(unsigned long long)size);
     return r;
@@ -339,11 +439,13 @@ static int32_t memory_io(void *buffer, uint64_t size, int64_t offset, int write)
     pthread_mutex_lock(&lock);
     if (!memory_size) { pthread_mutex_unlock(&lock); return ERR_MEMORY_NOT_READY; }
     if ((uint64_t)offset+size>memory_size) { pthread_mutex_unlock(&lock); return ERR_PARAMETER; }
+    if (write) runtime_file_save_change(1);
     FILE *f=fopen(memory_path,"r+b");
     int32_t r=ERR_INTERNAL;
     if (f && !fseek(f,offset,SEEK_SET) &&
         (write ? fwrite(buffer,1,size,f) : fread(buffer,1,size,f))==size) r=0;
     if (f) fclose(f);
+    if (write) runtime_file_save_change(0);
     if (!r && write) ++memory_writes;
     pthread_mutex_unlock(&lock);
     return r;

@@ -7,7 +7,7 @@ at its start (`Environment:` in the log) and warns about `BB_*` names it does no
 `=1: ...` / `=0: ...` / `=N: ...` say what that value does; `set: ...` means any value
 turns it on (even `0`).
 
-## Settings (85)
+## Settings (86)
 
 What players and the launchers set. The menu, bbport.ini and the launcher write most of them; set one by hand to override them.
 
@@ -82,6 +82,7 @@ What players and the launchers set. The menu, bbport.ini and the launcher write 
 | `BB_REACTIVE_THRESHOLD` | reactive mask threshold (the menu's) |
 | `BB_RENDER_RES` | =WxH: render resolution through the startup patch (compatibility) |
 | `BB_SAVE_LOG` | =1: the log and frame statistics also kept in logs/ |
+| `BB_SAVE_SNAPSHOTS` | =1: the save point (save scumming): its section in the overlay menu, and the restore it queues applied at the next start (the launcher's Mods and patches switch) |
 | `BB_SHADER_PROGRESS` | =0: no shader compilation progress on screen |
 | `BB_SHADNET_NPID` | the shadNet account name (the launcher's) |
 | `BB_SHADNET_PASSWORD` | the shadNet account password (the launcher's) |

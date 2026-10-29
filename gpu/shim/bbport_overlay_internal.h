@@ -50,5 +50,6 @@ void ReactiveMaskSection(BbSettings::Values& s, bool taa);
 void OutputSection(BbSettings::Values& s);
 void GameEffectsSection(BbSettings::Values& s);
 void FrameRateLimitSection(BbSettings::Values& s);
+void SavePointSection(); // only with the launcher's save point switch
 
 } // namespace BbOverlay::detail

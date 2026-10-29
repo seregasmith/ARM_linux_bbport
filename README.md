@@ -267,6 +267,11 @@ upscaled map textures (from the mods folder or already in the game folder) get l
 heaps by themselves (`BB_LARGE_HEAPS=1/0` forces it on or off).
 **Third-party patches:** shadPS4-format XML patch files in the data directory's `patches/`,
 switched on and off in the launcher. See [mods and patches](docs/MODS.md).
+**Save point (save scumming), off by default:** *Mods and patches → Save point* adds a button
+next to *Play* (make a copy of the saves, go back to it, undo the last return) and a *Save point*
+section in the overlay menu (*Back up now*, *Restore and restart*: the copy is put back before the
+game reads its saves). One copy is kept in `user/savedata-snapshot/`; a return keeps the saves it
+replaced in `user/savedata-snapshot.undo/`. The game is designed without this; turn it on knowingly.
 **DLC:** put your add-on dumps in `user/addcont/<title id>/<entitlement label>/` (shadPS4's
 layout, e.g. `user/addcont/CUSA03173/SPEXPANSIONDLC03` for The Old Hunters): each folder there is
 reported to the game as an installed add-on.

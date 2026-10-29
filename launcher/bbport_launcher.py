@@ -15,12 +15,13 @@ from bbport_launcher_content import ContentPages
 from bbport_launcher_gamepad import GamepadNavigation
 from bbport_launcher_log import LogPage
 from bbport_launcher_online import OnlinePage
+from bbport_launcher_savepoint import SavePoint
 from bbport_launcher_trophies import TrophiesPage
 from bbport_launcher_upscalers import UpscalerFiles
 
 
 # The window's pages and lists live in the bbport_launcher_*.py modules (mixins).
-class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFiles,
+class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFiles, SavePoint,
                      GamepadNavigation, Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="Bloodborne")
@@ -80,6 +81,7 @@ class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFi
         self.launch_button = Gtk.Button()
         self.launch_button.connect("clicked", self.on_launch)
         self.content_header.pack_end(self.launch_button)
+        self.build_save_point_button()  # bbport_launcher_savepoint.py: left of Play, while on
         content = Adw.ToolbarView()
         content.add_top_bar(self.content_header)
         self.toasts = Adw.ToastOverlay()
@@ -233,6 +235,7 @@ class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFi
         self.patch_list = FolderList(self.patches_group)
         self.refresh_patches()
         sec["mods"].add(self.patches_group)
+        sec["mods"].add(self.build_save_point_group())
 
         screen = Adw.PreferencesGroup(title=tr("Экран"))
         # The aspect ratio, then its resolutions (rebuilt when it changes, the height kept).
@@ -532,7 +535,8 @@ class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFi
             "gamepad_navigation": self.pad_nav_row,
             "mouse_look": self.mouse_look_row, "mouse_sensitivity": self.mouse_sensitivity_row,
             "mouse_invert_y": self.mouse_invert_row, "mouse_invert_x": self.mouse_invert_x_row, "button_prompts": self.prompts_row,
-            "mods_enabled": self.mods_enabled_row, "mangohud": self.mangohud_row,
+            "mods_enabled": self.mods_enabled_row, "save_snapshots": self.save_snapshots_row,
+            "mangohud": self.mangohud_row,
             "save_log": self.save_log_row, "crash_diag": self.crash_diag_row,
             "frame_stats": self.stats_row, "gpu_profile": self.profile_row,
             "vk_validation": self.validation_row, **self.camera_speed_rows, **self.effect_rows,
@@ -862,6 +866,7 @@ class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFi
         s["extra_env"] = self.extra_row.get_text().strip()
         s["trophy_key"] = self.trophy_key_row.get_text().strip()
         s["mods_enabled"] = self.mods_enabled_row.get_active()
+        s["save_snapshots"] = self.save_snapshots_row.get_active()
         s["online"] = self.online_row.get_active()
         s["online_bbsc"] = self.bbsc_row.get_active()
         s["online_community"] = self.community_row.get_text().strip()

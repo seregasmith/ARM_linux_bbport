@@ -2090,6 +2090,36 @@
       "zh_CN": "补丁",
       "fr_FR": "Correctifs"
      }
+    },
+    {
+     "key": "save_snapshots",
+     "type": "bool",
+     "store": "settings",
+     "default": false,
+     "platforms": [
+      "linux"
+     ],
+     "title": {
+      "ru": "Точка сохранения (сейв-скам)",
+      "en": "Save point (save scumming)",
+      "pt_BR": "Ponto de salvamento (save scumming)",
+      "zh_CN": "存档点（回档）",
+      "fr_FR": "Point de sauvegarde (save scumming)"
+     },
+     "description": {
+      "ru": "Одна копия сохранений и возврат к ней: кнопка рядом с «Запустить» и раздел в меню порта в игре (Insert / L3+R3). Игра задумана без этого: смерти и потери в ней окончательны. Включайте осознанно.",
+      "en": "One copy of your saves and a way back to it: a button next to Play and a section in the port's in-game menu (Insert / L3+R3). The game is designed without this: its deaths and losses are meant to stick. Turn it on knowingly.",
+      "pt_BR": "Uma cópia dos seus saves e um jeito de voltar a ela: um botão ao lado de Jogar e uma seção no menu do port dentro do jogo (Insert / L3+R3). O jogo foi feito sem isso: mortes e perdas são para valer. Ative com consciência.",
+      "zh_CN": "一份存档副本，以及恢复到它的方法：“启动”旁的按钮和游戏内移植菜单（Insert / L3+R3）中的一个分区。游戏的设计并不包含此功能：死亡和损失本应无法挽回。请慎重开启。",
+      "fr_FR": "Une copie de vos sauvegardes et un moyen d'y revenir : un bouton à côté de Jouer et une section dans le menu du portage en jeu (Insert / L3+R3). Le jeu est conçu sans cela : ses morts et ses pertes sont censées être définitives. Activez-le en connaissance de cause."
+     },
+     "group": {
+      "ru": "Точка сохранения",
+      "en": "Save point",
+      "pt_BR": "Ponto de salvamento",
+      "zh_CN": "存档点",
+      "fr_FR": "Point de sauvegarde"
+     }
     }
    ]
   },

@@ -30,6 +30,7 @@ from mods import discover as discover_mods  # noqa: E402
 import game_check  # noqa: E402
 import online  # noqa: E402  (the online module: addresses and the connection test)
 import trophy_list  # noqa: E402  (the Trophies page: what the port keeps in the user folder)
+import save_snapshots  # noqa: E402  (the save point: a copy of the saves and the way back)
 from patches import external_patches  # noqa: E402
 # Packaged (AppImage): generated files, saves and bbport.ini live in BB_DATA_DIR.
 PACKAGED = bool(os.environ.get("BB_PREBUILT"))
@@ -186,6 +187,9 @@ DEFAULTS = {
     "mods_dir": "",
     "mods_enabled": True,
     "patches_dir": "",
+    # The save point (save scumming, scripts/save_snapshots.py): off unless the player turns it on
+    # in Mods and patches; then a button next to Play and a section in the in-game menu.
+    "save_snapshots": False,
     "language": "1",
     "fullscreen": False,
     "hdr": False,
@@ -427,6 +431,11 @@ def game_environment(s):
     env["BB_MODS_DIR"] = str(Path(s.get("mods_dir") or DATA_DIR / "mods").expanduser())
     env["BB_MODS_CONFIG"] = str(DATA_DIR / "mods.json")
     env["BB_MODS_ENABLED"] = "1" if s.get("mods_enabled", True) else "0"
+    # The in-game menu's save point section (and the restore it queues) only with the switch on.
+    if s.get("save_snapshots"):
+        env["BB_SAVE_SNAPSHOTS"] = "1"
+    else:
+        env.pop("BB_SAVE_SNAPSHOTS", None)
     env["BB_PATCHES_DIR"] = str(patches_dir(s))
     env["BB_PATCHES_CONFIG"] = str(DATA_DIR / "patches.json")
     env["BB_LANGUAGE"] = s["language"]

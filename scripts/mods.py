@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import sys
 import tempfile
@@ -220,7 +221,8 @@ def backup_saves(saves, state, mods):
         target = backups / time.strftime('%Y%m%d-%H%M%S')
         shutil.copytree(saves, target, symlinks=True)
         print(f'Mods: the set of mods changed; saves copied to {target}', file=sys.stderr)
-        for old in sorted(p for p in backups.iterdir() if p.is_dir())[:-5]:
+        # Only these copies (named by time): other folders there are the player's.
+        for old in sorted(p for p in backups.iterdir() if p.is_dir() and re.fullmatch(r'\d{8}-\d{6}', p.name))[:-5]:
             shutil.rmtree(old)
     state.parent.mkdir(parents=True, exist_ok=True)
     state.write_text(now, encoding='utf-8')

@@ -250,6 +250,40 @@ static File *get(int fd) {
 static int audio_trace(void) { static int v=-1; if (v<0) { const char *e=bb_env("BB_AUDIO_TRACE"); v=e && e[0]=='1'; } return v; }
 /* BB_SAVE_TRACE=1: every operation on save files (/savedataN). */
 static int save_trace(void) { static int v=-1; if (v<0) { const char *e=bb_env("BB_SAVE_TRACE"); v=e && e[0]=='1'; } return v; }
+/* bbport: changes to the save files, for the save point copied in the game (runtime_savedata.c).
+ * Each change (an open for writing, the commit of a written file, rename, unlink, mkdir, rmdir,
+ * truncate; SaveData's own writes) is counted when it starts and when it ends. Changes in progress
+ * and save files open for writing make the saves busy: a copy made while they are not, with the
+ * count the same after it, holds no save half written. */
+static uint64_t save_changes, save_changed_ms;
+static int save_changing;
+static uint64_t monotonic_ms(void) {
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC,&t);
+    return (uint64_t)t.tv_sec*1000u+(uint64_t)t.tv_nsec/1000000u;
+}
+void runtime_file_save_change(int begin) {
+    if (begin) {
+        __atomic_add_fetch(&save_changing,1,__ATOMIC_SEQ_CST);
+        __atomic_add_fetch(&save_changes,1,__ATOMIC_SEQ_CST);
+    } else {
+        __atomic_store_n(&save_changed_ms,monotonic_ms(),__ATOMIC_SEQ_CST);
+        __atomic_add_fetch(&save_changes,1,__ATOMIC_SEQ_CST);
+        __atomic_sub_fetch(&save_changing,1,__ATOMIC_SEQ_CST);
+    }
+}
+int runtime_file_save_activity(uint64_t *changes,uint64_t *quiet_ms) {
+    if (changes) *changes=__atomic_load_n(&save_changes,__ATOMIC_SEQ_CST);
+    int busy=__atomic_load_n(&save_changing,__ATOMIC_SEQ_CST);
+    pthread_mutex_lock(&lock);
+    for (int i=3;i<MAX_FILES;++i) if (files[i].used && files[i].commit) ++busy;
+    pthread_mutex_unlock(&lock);
+    if (quiet_ms) {
+        const uint64_t last=__atomic_load_n(&save_changed_ms,__ATOMIC_SEQ_CST);
+        *quiet_ms=last ? monotonic_ms()-last : UINT64_MAX;
+    }
+    return busy;
+}
 /* Game mounts (including linked mod overlays) are read-only. Saves use other mounts. */
 static int game_path(const char *p) {
     if (!p || !*p) return 0;
@@ -469,7 +503,7 @@ int runtime_file_host_path(const char *guest,char *out,size_t size) {
     if (access(out,F_OK)!=0 && !fix_case(out)) return ENOENT;
     return runtime_remote_fetch(out);
 }
-static int64_t do_open(const char *guest,int flags,int mode) {
+static int64_t open_guest(const char *guest,int flags,int mode) {
     if (game_path(guest) && (flags & (3|0x8|0x200|0x400|0x800))) return -EROFS;
     char path[1024];
     int e=translate(guest,path,sizeof(path));
@@ -529,17 +563,25 @@ static int64_t do_open(const char *guest,int flags,int mode) {
     if (save_trace() && save_path(guest)) printf("Save trace: open(%s) -> fd %d\n",guest,fd);
     return fd;
 }
+static int64_t do_open(const char *guest,int flags,int mode) {
+    const int change=save_path(guest) && (flags&(3|0x200|0x400)); /* writing, creating, truncating */
+    if (change) runtime_file_save_change(1);
+    const int64_t r=open_guest(guest,flags,mode);
+    if (change) runtime_file_save_change(0);
+    return r;
+}
 static int64_t do_close(int fd) {
     if (fd>=0 && fd<3) return 0;
     pthread_mutex_lock(&lock);
     File *f=get(fd);
     if (!f) { pthread_mutex_unlock(&lock); return -EBADF; }
     File closed=*f;
+    if (closed.temp) runtime_file_save_change(1); /* before the file stops counting as open */
     *f=(File){0};
     pthread_mutex_unlock(&lock);
     free_listing(closed.dir);
     int result=0;
-    if (closed.temp) result=commit_file(&closed);
+    if (closed.temp) { result=commit_file(&closed); runtime_file_save_change(0); }
     else close(closed.host);
     if (save_trace() && save_path(closed.path))
         printf("Save trace: close(fd %d, %s)%s -> %d\n",fd,closed.path,closed.temp ? closed.dirty ? " commit" : " unwritten" : "",result);
@@ -709,8 +751,10 @@ static int64_t path_op(const char *guest,int op,int mode) {
     char path[1024];
     int e=translate(guest,path,sizeof(path));
     if (e) return -e;
+    if (save_path(guest)) runtime_file_save_change(1);
     int r= op==0 ? mkdir(path,mode ? mode : 0755) : op==1 ? rmdir(path) : unlink(path);
     r=r ? -errno : 0;
+    if (save_path(guest)) runtime_file_save_change(0);
     if (save_trace() && save_path(guest)) printf("Save trace: %s(%s) -> %d\n",op==0 ? "mkdir" : op==1 ? "rmdir" : "unlink",guest,r);
     return r;
 }
@@ -720,7 +764,10 @@ static int64_t do_rename(const char *from,const char *to) {
     int e=translate(from,a,sizeof(a));
     if (!e) e=translate(to,b,sizeof(b));
     if (e) return -e;
+    const int change=save_path(from) || save_path(to);
+    if (change) runtime_file_save_change(1);
     int r=rename(a,b) ? -errno : 0;
+    if (change) runtime_file_save_change(0);
     if (save_trace() && (save_path(from) || save_path(to))) printf("Save trace: rename(%s, %s) -> %d\n",from,to,r);
     return r;
 }
@@ -736,7 +783,10 @@ static int64_t do_truncate(const char *guest,int64_t length) {
     if (e) return -e;
     if (save_path(guest)) current_copy(path,sizeof(path),1);
     if (save_trace() && save_path(guest)) printf("Save trace: truncate(%s, %lld)\n",guest,(long long)length);
-    return truncate(path,length) ? -errno : 0;
+    if (save_path(guest)) runtime_file_save_change(1);
+    const int64_t r=truncate(path,length) ? -errno : 0;
+    if (save_path(guest)) runtime_file_save_change(0);
+    return r;
 }
 static int64_t do_fsync(int fd) { int h=host_fd(fd); if (h<0) return -EBADF; return fsync(h) ? -errno : 0; }
 static int64_t do_access(const char *guest,int mode) {

@@ -135,4 +135,6 @@ if [[ ${1:-} == --test ]]; then
     fi
     "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread -Isrc tests/test_trophy.c src/runtime_trophy.c -o out/trophy-test
     out/trophy-test out/trophy_test_tmp
+    "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread -Isrc tests/test_save_snapshot.c src/runtime_snapshot.c -o out/save-snapshot-test
+    out/save-snapshot-test out/save_snapshot_test_tmp
 fi

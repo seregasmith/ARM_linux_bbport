@@ -1,14 +1,16 @@
 // SPDX-FileCopyrightText: Copyright 2026 bbport contributors
 // SPDX-License-Identifier: GPL-2.0-or-later
 // bbport: the overlay menu's sections (upscaler, reactive mask, output, game effects, frame rate
-// limit, shaders); Menu() in bbport_overlay.cpp puts them one under the other.
+// limit, save point, shaders); Menu() in bbport_overlay.cpp puts them one under the other.
 #include "bbport_overlay_internal.h"
 #include "shim/bb_env.h"
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
+#include <ctime>
 #include <string>
 #include <string_view>
 
@@ -18,6 +20,14 @@
 #include "render/compile_log.h"
 
 extern "C" void runtime_restart(void); // bb-probe (probe.c)
+// The save point (src/runtime_savedata.c, src/runtime.h; its errors in src/runtime_snapshot.h).
+extern "C" {
+int runtime_snapshot_enabled(void);
+std::int64_t runtime_snapshot_created(void);
+void runtime_snapshot_backup_start(void);
+int runtime_snapshot_status(void);
+int runtime_snapshot_queue_restore(void);
+}
 
 namespace BbOverlay::detail {
 
@@ -762,6 +772,99 @@ void GameEffectsSection(BbSettings::Values& s) {
             BbSettings::Save();
             runtime_restart();
         }
+    }
+}
+
+/// The menu's "Save point" section, with the launcher's save point switch (save scumming,
+/// BB_SAVE_SNAPSHOTS=1): a copy of the saves made now, and the way back to it through a restart
+/// (the copy is put back before the game reads its saves again).
+void SavePointSection() {
+    if (!runtime_snapshot_enabled()) {
+        return;
+    }
+    // runtime.h's RUNTIME_SNAPSHOT_* and runtime_snapshot.h's SNAPSHOT_* errors.
+    enum { Working = 1, Done = 2, Busy = -1, NoSaves = -2, Failed = -4 };
+    ImGui::SeparatorText(BbSettings::MenuText("Save point", "Точка сохранения"));
+    const int status = runtime_snapshot_status();
+    const std::int64_t created = runtime_snapshot_created();
+    if (created > 0) {
+        const std::time_t when = static_cast<std::time_t>(created);
+        std::tm local{};
+#ifdef _WIN32
+        localtime_s(&local, &when);
+#else
+        localtime_r(&when, &local);
+#endif
+        char text[32] = "";
+        std::strftime(text, sizeof(text), "%Y-%m-%d %H:%M", &local);
+        ImGui::Text("%s: %s", BbSettings::MenuText("Made", "Сделана"), text);
+    } else {
+        ImGui::TextDisabled("%s", BbSettings::MenuText("No save point yet", "Точки сохранения пока нет"));
+    }
+    switch (status) {
+    case Working:
+        ImGui::TextDisabled("%s", BbSettings::MenuText("Copying the saves (after the game's autosave)...",
+                                                       "Копирование сохранений (после автосохранения игры)…"));
+        break;
+    case Done:
+        ImGui::TextColored(ImVec4(0.5f, 0.9f, 0.5f, 1.0f), "%s",
+                           BbSettings::MenuText("Save point made", "Точка сохранения сделана"));
+        break;
+    case Busy:
+        ProblemText(BbSettings::MenuText("The game kept saving: try again in a moment",
+                                         "Игра всё время сохранялась: попробуйте чуть позже"));
+        break;
+    case NoSaves:
+        ProblemText(BbSettings::MenuText("No saves yet", "Сохранений пока нет"));
+        break;
+    case Failed:
+        ProblemText(BbSettings::MenuText("Could not copy the saves (see the log)",
+                                         "Не удалось скопировать сохранения (подробности в журнале)"));
+        break;
+    default:
+        break;
+    }
+    const bool working = status == Working;
+    ImGui::BeginDisabled(working);
+    if (ImGui::Button(BbSettings::MenuText("Back up now", "Сделать точку сейчас"))) {
+        runtime_snapshot_backup_start();
+    }
+    ImGui::EndDisabled();
+    Hint(BbSettings::MenuText(
+        "Copies the saves as the game last wrote them (it saves all the time: rest a moment first), "
+        "replacing the save point.",
+        "Копирует сохранения такими, какими игра записала их последний раз (она сохраняется "
+        "постоянно: сначала постойте секунду), и заменяет ими точку сохранения."));
+    // A second press confirms, as Quit game does; the game then restarts at once.
+    static bool restore_armed = false;
+    static int restore_error = 0;
+    ImGui::SameLine();
+    ImGui::BeginDisabled(working || created <= 0);
+    if (ImGui::Button(restore_armed
+                          ? BbSettings::MenuText("Press again to restore", "Нажмите ещё раз для возврата")
+                          : BbSettings::MenuText("Restore and restart", "Вернуться и перезапустить"))) {
+        if (restore_armed) {
+            restore_error = runtime_snapshot_queue_restore();
+            if (restore_error == 0) {
+                runtime_restart();
+            }
+        }
+        restore_armed = !restore_armed;
+    }
+    if (restore_armed && !ImGui::IsItemFocused() && !ImGui::IsItemHovered()) {
+        restore_armed = false;
+    }
+    ImGui::EndDisabled();
+    Hint(BbSettings::MenuText(
+        "The game restarts, and the saves of the save point are put back before it loads them. "
+        "Your progress until now is kept as the undo copy (the launcher's save point button can "
+        "bring it back).",
+        "Игра перезапустится, и сохранения точки встанут на место до того, как она их загрузит. "
+        "Прогресс до этого момента останется копией для отмены (её можно вернуть кнопкой точки "
+        "сохранения в лаунчере)."));
+    if (restore_error != 0) {
+        ProblemText(BbSettings::MenuText("The restore was not queued (see the log)",
+                                         "Возврат не запланирован (подробности в журнале)"));
     }
 }
 

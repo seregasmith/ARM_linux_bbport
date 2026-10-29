@@ -51,6 +51,24 @@ int main(void) {
     int save=(int)do_open("/data/test-save",0x202,0644); assert(save>=3);
     assert(do_write(save,"save",4)==4 && !do_close(save));
     assert(!path_op("/data/test-save",2,0));
+    /* The in-game save point's view of the saves (runtime_file_save_activity): a save file open for
+     * writing makes them busy, and every change is counted when it starts and when it ends. */
+    char saves[512]; snprintf(saves,sizeof(saves),"%s/saves",root); assert(!mkdir(saves,0755));
+    assert(!runtime_file_mount("/savedata0",saves));
+    uint64_t before=0, after=0, quiet=0;
+    assert(runtime_file_save_activity(&before,&quiet)==0);
+    int slot=(int)do_open("/savedata0/userdata0000",0x202,0644); assert(slot>=3);
+    assert(runtime_file_save_activity(&after,NULL)==1 && after==before+2);
+    assert(do_write(slot,"hunter",6)==6 && !do_close(slot));
+    assert(runtime_file_save_activity(&after,&quiet)==0 && after==before+4 && quiet<1000);
+    assert(!do_rename("/savedata0/userdata0000","/savedata0/userdata0000.bak"));
+    uint64_t renamed=0; assert(runtime_file_save_activity(&renamed,NULL)==0 && renamed==after+2);
+    int reader=(int)do_open("/savedata0/userdata0000.bak",0,0); assert(reader>=3);
+    uint64_t read_only=0; assert(runtime_file_save_activity(&read_only,NULL)==0 && read_only==renamed);
+    assert(!do_close(reader));
+    assert(!path_op("/savedata0/userdata0000.bak",2,0));
+    runtime_file_unmount("/savedata0");
+    assert(!rmdir(saves));
     assert(!unlink(link) && !unlink(source) && !rmdir(game));
     const char *dirs[]={"temp0","download0","data"};
     for (int i=0;i<3;++i) { char p[1024]; snprintf(p,sizeof(p),"%s/%s",user,dirs[i]); assert(!rmdir(p)); }
