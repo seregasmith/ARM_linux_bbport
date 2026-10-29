@@ -9,3 +9,7 @@ patches here to its working tree when they are not applied yet:
   On RADV PHOENIX (Ryzen Z1 Extreme: ROG Ally, Legion Go) it picked one for FSR 3.1's
   device-local resources, and the scene was white or full of colored noise (#85). Also sent to
   FireBurn/FSR-Vulkan#1.
+- `0003-...`: the FFX Vulkan backend's `ffxVkShaderOverride` (the port's own FSR 3.1 frame
+  generation passes, `gpu/upscale/ffx_shaders.cpp`) and `ffxVkJobMark` (`BB_FG_PROFILE`,
+  `gpu/upscale/fg_profile.cpp`). The port's 0.7 sources use both, but no patch defined them:
+  bb-probe did not link (undefined reference to `ffxVkShaderOverride`).

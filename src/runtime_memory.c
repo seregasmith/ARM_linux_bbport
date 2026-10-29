@@ -168,6 +168,57 @@ static int lazy_game;
  * backing view start at offset 0 of their chunk. */
 static unsigned char *backing_base; /* second view of the pool: host writes bypass guest/GPU page protection */
 static int whole_chunks;
+/* bbport: drivers whose dma-buf maps from its start at any offset (msm: its fault handler takes a
+ * page from the address within the mapping, not from the mapping's offset). A mapping split later
+ * (mprotect: write traps; a partial munmap) has its pieces fault in from the start again: the
+ * game's view and the GPU's (and the backing view) then hold different pages. Their chunks are
+ * mapped from offset 0 and every page faulted in at once, while the mapping is whole: the page
+ * tables stay right through later splits. A mapping at an offset is a mapping from the start,
+ * faulted in, then moved where it belongs (mremap). Set by the GPU library's dma-buf check. */
+static int chunk_offsets_from_start;
+static void *map_chunk(void *address, uint64_t size, int prot, int fd, uint64_t offset) {
+#ifndef _WIN32
+    if (chunk_offsets_from_start && size) {
+        static long page;
+        static uint64_t mapped_mb;
+        static int told;
+        if (!page) page=sysconf(_SC_PAGESIZE);
+        struct timespec t0, t1;
+        clock_gettime(CLOCK_MONOTONIC,&t0);
+        const int touch_prot=prot|PROT_READ;
+        unsigned char *from=mmap(offset ? NULL : address,offset+size,touch_prot,
+                                 MAP_SHARED|(offset ? 0 : MAP_FIXED),fd,0);
+        if (from==MAP_FAILED) return MAP_FAILED;
+        for (uint64_t at=offset;at<offset+size;at+=(uint64_t)page) (void)*(volatile unsigned char *)(from+at);
+        if (offset) {
+            void *moved=mremap(from+offset,size,size,MREMAP_MAYMOVE|MREMAP_FIXED,address);
+            const int error=errno;
+            munmap(from,offset);
+            if (moved==MAP_FAILED) {
+                munmap(from+offset,size);
+                static int reported;
+                if (reported++ < 4)
+                    fprintf(stderr,"Runtime: moving a dma-buf mapping (+%#" PRIx64 ", %#" PRIx64 " bytes) to %p failed: %s\n",
+                            offset,size,address,strerror(error));
+                errno=error;
+                return MAP_FAILED;
+            }
+        }
+        if (touch_prot!=prot && mprotect(address,size,prot)) return MAP_FAILED;
+        clock_gettime(CLOCK_MONOTONIC,&t1);
+        mapped_mb+=size>>20;
+        if (!told++)
+            printf("Runtime: dma-buf chunks are faulted in whole as they are mapped (the driver maps "
+                   "pieces of a split mapping from its start: msm)\n");
+        if (size>=(UINT64_C(256)<<20))
+            printf("Runtime: dma-buf mapping of %" PRIu64 " MiB at +%#" PRIx64 " faulted in: %.0f ms "
+                   "(%" PRIu64 " MiB so far)\n",size>>20,offset,
+                   (double)(t1.tv_sec-t0.tv_sec)*1e3+(double)(t1.tv_nsec-t0.tv_nsec)/1e6,mapped_mb);
+        return address;
+    }
+#endif
+    return mmap(address,size,prot,MAP_SHARED|MAP_FIXED,fd,(off_t)offset);
+}
 typedef struct { uint64_t phys, size; int fd; uintptr_t va; } Region;
 /* bbport: private regions (BbGuestMemory's private mode, Windows drivers): a direct allocation's
  * memory is private memory placed where the game maps it, its only view, imported by the GPU
@@ -210,7 +261,7 @@ static void add_region(uint64_t phys, uint64_t size) {
     for (size_t i=0;i<sizeof(pre_chunks)/sizeof(pre_chunks[0]);++i)
         if (pre_chunks[i].valid && pre_chunks[i].phys==phys && pre_chunks[i].size==size) { fd=pre_chunks[i].fd; pre_chunks[i].valid=0; found=1; break; }
     if (!found) fd=chunk_alloc(phys,size);
-    if (fd>=0 && mmap(backing_base+phys,size,PROT_READ|PROT_WRITE,MAP_SHARED|MAP_FIXED,fd,0)==MAP_FAILED) {
+    if (fd>=0 && map_chunk(backing_base+phys,size,PROT_READ|PROT_WRITE,fd,0)==MAP_FAILED) {
         close(fd);
         fd=-1;
     }

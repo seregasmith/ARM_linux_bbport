@@ -41,6 +41,7 @@
 extern "C" void runtime_memory_set_guest_chunk_allocator(int (*alloc)(uint64_t phys,
                                                                       uint64_t size));
 extern "C" void runtime_memory_set_guest_chunk_whole(int whole);
+extern "C" void runtime_memory_set_guest_chunk_offsets_from_start(int on);
 extern "C" void runtime_memory_set_guest_chunk_private(int (*import)(uint64_t phys, uint64_t size,
                                                                      void* pointer));
 extern "C" void* runtime_memory_backing_pointer(uint64_t phys);
@@ -58,6 +59,22 @@ inline constexpr std::size_t MaxChunks = 4096;
 
 inline vk::Device device;
 inline vk::PhysicalDeviceMemoryProperties memory_properties;
+/// bbport: an integrated GPU (one memory for CPU and GPU). Some drivers list every memory type
+/// device-local there (Turnip on Adreno), so no type passes as "system memory" by that flag.
+inline bool integrated = false;
+inline void NoteDeviceType(const Vulkan::Instance& instance) {
+    integrated = instance.GetPhysicalDevice().getProperties().deviceType ==
+                 vk::PhysicalDeviceType::eIntegratedGpu;
+}
+/// A host-visible type that is system memory: one not device-local (as before), or on an integrated
+/// GPU, as a second choice (`device_local_pass`), a device-local one that is also host-coherent
+/// (the game's code writes it without flushes, which a cached non-coherent type would need).
+inline bool SystemType(vk::MemoryPropertyFlags flags, bool device_local_pass) {
+    if (!(flags & vk::MemoryPropertyFlagBits::eDeviceLocal)) {
+        return !device_local_pass;
+    }
+    return device_local_pass && integrated && bool(flags & vk::MemoryPropertyFlagBits::eHostCoherent);
+}
 inline std::mutex mutex;
 inline std::array<Chunk*, MaxChunks> chunks{}; // sorted by phys
 inline std::size_t chunk_count = 0;
@@ -65,6 +82,9 @@ inline std::size_t chunk_count = 0;
 /// buffers by it: two chunks with one index bound one through the other).
 inline std::uint32_t next_index = 0;
 inline bool whole_only = false; // the driver's dma-buf maps at offset 0 only: a chunk per allocation
+/// The driver's dma-buf maps from its start at any offset (msm): the runtime faults its mappings
+/// in whole while they are whole, and moves them where an offset was asked (map_chunk).
+inline bool offsets_from_start = false;
 enum class Mode { DmaBuf, HostImport };
 inline Mode mode = Mode::DmaBuf;
 /// Host import of private memory, one view per direct allocation (runtime private regions): for

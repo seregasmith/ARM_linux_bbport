@@ -85,8 +85,8 @@ int AllocChunk(u64 phys, u64 size) {
         RegisterChunk(chunks[i]);
     }
     const u64 total = chunk_bytes.fetch_add(size) + size;
-    const bool vram_type = bool(memory_properties.memoryTypes[type].propertyFlags &
-                                vk::MemoryPropertyFlagBits::eDeviceLocal);
+    const bool vram_type = !integrated && bool(memory_properties.memoryTypes[type].propertyFlags &
+                                               vk::MemoryPropertyFlagBits::eDeviceLocal);
     std::printf("Guest memory: direct memory %#llx+%llu MiB in GPU-visible memory (dma-buf%s), "
                 "%llu MiB so far\n",
                 (unsigned long long)phys, (unsigned long long)(size >> 20),
@@ -126,14 +126,16 @@ void FreeChunk(u64 phys, u64 size) {
 std::uint32_t FindHostType(std::uint32_t bits) {
     // Cached host memory first, then any host-visible type the import allows.
     for (const bool cached : {true, false}) {
-        for (std::uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i) {
-            const auto flags = memory_properties.memoryTypes[i].propertyFlags;
-            if (!(bits & (1u << i)) || !(flags & vk::MemoryPropertyFlagBits::eHostVisible) ||
-                (flags & vk::MemoryPropertyFlagBits::eDeviceLocal) || !TypeAllowed(flags) ||
-                (cached &&!(flags & vk::MemoryPropertyFlagBits::eHostCached))) {
-                continue;
+        for (const bool device_local : {false, true}) {
+            for (std::uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i) {
+                const auto flags = memory_properties.memoryTypes[i].propertyFlags;
+                if (!(bits & (1u << i)) || !(flags & vk::MemoryPropertyFlagBits::eHostVisible) ||
+                    !SystemType(flags, device_local) || !TypeAllowed(flags) ||
+                    (cached && !(flags & vk::MemoryPropertyFlagBits::eHostCached))) {
+                    continue;
+                }
+                return i;
             }
-            return i;
         }
     }
     return ~0u;

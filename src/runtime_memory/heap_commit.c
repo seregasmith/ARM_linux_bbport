@@ -152,7 +152,7 @@ int runtime_memory_commit(uint64_t phys, uint64_t size) {
         const uint64_t a=vp>phys ? vp : phys, b=ve<phys+size ? ve : phys+size;
         if (a>=b) continue;
         const uintptr_t va=v.start+(a-vp);
-        if (mmap((void *)va,b-a,host_prot(v.prot),MAP_SHARED|MAP_FIXED,r->fd,(off_t)(a-r->phys))==MAP_FAILED) {
+        if (map_chunk((void *)va,b-a,host_prot(v.prot),r->fd,a-r->phys)==MAP_FAILED) {
             fprintf(stderr,"STOP: moving %#" PRIxPTR "+%#" PRIx64 " onto its new GPU memory failed: %s\n",va,b-a,strerror(errno));
             exit(21);
         }

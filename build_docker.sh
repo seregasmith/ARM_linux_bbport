@@ -16,7 +16,8 @@
 #   appimage  build, then dist/Bloodborne-bbport-<arch>.AppImage like the GitHub release
 #             (packaging/appimage.sh; for aarch64 the first run compiles the patched Turnip driver)
 #   shell     interactive shell in that target's build environment, in the source tree
-#   clean     delete that target's Docker image and Nix store volume (the source tree is untouched)
+#   clean     delete that target's Docker image and its own Nix store volume (not one named by
+#             BB_NIX_VOLUME; the source tree is untouched)
 #
 # Build directories (build.sh always writes out/ and pgo/, so each target gets its own):
 #   aarch64  out/ and pgo/ of the tree
@@ -52,6 +53,17 @@
 #                 less RAM; upstream defaults to ON). FEX is always built without LTO.
 #   JOBS          parallel compiler processes (default: picked from Docker's RAM, about 2 GB each).
 #                 If the compiler still gets "Killed" (out of memory): JOBS=2 ./build_docker.sh
+#   BB_NIX_VOLUME an existing Docker volume to use as the target's Nix store instead of this
+#                 script's own (bbport-nix for aarch64, bbport-nix-x86_64). The DriveClub,
+#                 Gravity Rush 2 and inFAMOUS build_docker.sh pin the same nixpkgs, so their volumes
+#                 can be shared to skip downloading the toolchain again (and, for appimage,
+#                 building the same Turnip again: the derivation is the same):
+#                   BB_NIX_VOLUME=dc-nix ./build_docker.sh                         (aarch64)
+#                   BB_NIX_VOLUME=gr2-nix ./build_docker.sh                        (aarch64)
+#                   BB_NIX_VOLUME=iss-nix-x86_64 ./build_docker.sh --arch x86_64
+#                 The volume must exist already (docker volume ls) and hold the target
+#                 architecture's Nix: the script stops instead of creating an empty one. `clean`
+#                 deletes only this script's own bbport-nix* volumes.
 #   GITHUB_TOKEN  optional GitHub token for Nix downloads, if GitHub's API rate limit hits
 #   BB_TURNIP_SRC aarch64 only: a Mesa source tree on this machine for the AppImage's Turnip instead
 #                 of nixpkgs' Mesa release (packaging/default.nix), e.g. the turnip/gen8 branch:
@@ -114,24 +126,34 @@ DOCKER_PLATFORM_ARCH=${PLATFORM#linux/}   # arm64 | amd64, as `docker image insp
 # can't share one), and build directory.
 if [ "$ARCH" = aarch64 ]; then
     IMAGE="bbport-builder:${NIXPKGS_REV:0:8}"
-    NIX_VOLUME=bbport-nix
+    OWN_VOLUME=bbport-nix
     BUILD_DIR=""
 else
     IMAGE="bbport-builder:${NIXPKGS_REV:0:8}-$ARCH"
-    NIX_VOLUME=bbport-nix-$ARCH
+    OWN_VOLUME=bbport-nix-$ARCH
     BUILD_DIR=build-$ARCH
 fi
+NIX_VOLUME=${BB_NIX_VOLUME:-$OWN_VOLUME}
 OUT_DESC=${BUILD_DIR:+$BUILD_DIR/}out
 
 if [ "$MODE" = clean ]; then
     docker image rm "$IMAGE" 2>/dev/null || true
-    docker volume rm "$NIX_VOLUME" 2>/dev/null || true
-    echo "Removed the $ARCH build image $IMAGE and Nix volume $NIX_VOLUME."
-    if [ "$ARCH" = aarch64 ]; then
-        echo "(build_docker.sh uses the same ones: its next run downloads and builds them again.)"
+    echo "Removed the $ARCH build image $IMAGE."
+    if [ "$NIX_VOLUME" = "$OWN_VOLUME" ]; then
+        docker volume rm "$NIX_VOLUME" 2>/dev/null || true
+        echo "Removed the $ARCH Nix store volume $NIX_VOLUME (the next build downloads it again)."
+    else
+        echo "Kept the Nix store volume $NIX_VOLUME: it is not this script's own ($OWN_VOLUME)."
     fi
     echo "The source tree was not touched (this target's build outputs: $OUT_DESC/, dist/)."
     exit 0
+fi
+# A volume named by BB_NIX_VOLUME is used only if it exists: `docker run -v` would otherwise
+# create an empty one under that name and download everything into it.
+if [ "$NIX_VOLUME" != "$OWN_VOLUME" ] && ! docker volume inspect "$NIX_VOLUME" >/dev/null 2>&1; then
+    echo "ERROR: BB_NIX_VOLUME=$NIX_VOLUME: no such Docker volume. Volumes here:" >&2
+    docker volume ls --format '  {{.Name}}' >&2 || true
+    die "name an existing one, or unset BB_NIX_VOLUME to use this script's own ($OWN_VOLUME)"
 fi
 
 # The source tree: the project's own files must be there, and the submodules checked out.
@@ -221,6 +243,9 @@ if [ -n "${BB_TURNIP_SRC:-}" ]; then
     fi
 fi
 echo "==> Docker VM: ${ncpu} CPUs, ${mem_mib} MiB RAM; compiling with JOBS=${JOBS}"
+if [ "$NIX_VOLUME" != "$OWN_VOLUME" ]; then
+    echo "==> Nix store: shared volume $NIX_VOLUME (BB_NIX_VOLUME)"
+fi
 if [ "$mem_mib" -lt 7500 ]; then
     echo "WARNING: little RAM for this build. Give Docker 8 GB or more" \
          "(Docker Desktop: Settings > Resources > Memory), or expect a slow build." >&2
@@ -269,6 +294,16 @@ WORKDIR /src
 DOCKERFILE
 fi
 
+# A shared volume hides the image's own /nix: its Nix runs every command here. One made for the
+# other architecture would run there too (natively on an arm64 Docker VM) and build for it.
+if [ "$NIX_VOLUME" != "$OWN_VOLUME" ]; then
+    vol_system=$(docker run --rm --platform "$PLATFORM" -v "$NIX_VOLUME":/nix "$IMAGE" \
+        nix-instantiate --eval --expr builtins.currentSystem 2>/dev/null | tr -d '"' | tail -n 1) || true
+    if [ "$vol_system" != "$ARCH-linux" ]; then
+        die "BB_NIX_VOLUME=$NIX_VOLUME holds ${vol_system:-no working} Nix ($ARCH-linux needed: x86_64 volumes end in -x86_64)"
+    fi
+fi
+
 # Runs inside the container, in /src (the mounted source tree). $1 = mode.
 # Only the Nix image's own tools here (bash, coreutils, findutils, grep, curl, tar, git): no sed
 # outside nix-shell.
@@ -302,7 +337,12 @@ fi
 #   itself keeps caches in ~/.cache/nix: run with HOME=/homeless-shelter, it creates the directory);
 # - a post-build hook removes it after each build (max-jobs = 1: builds run one at a time, and Nix
 #   waits for the hook before it starts the next one);
-# - each step here removes it before it starts and after it ends, and names what was in it.
+# - each step here removes it before it starts and after it ends, and names what was in it;
+# - a watcher removes it whenever it appears: without build users Nix cannot kill what a builder
+#   started, and such a leftover process (a test's D-Bus or dconf service, a font cache writer)
+#   can create it after the hook ran, between two builds;
+# - a step that still stops on it runs again (up to 3 times): what Nix built is kept, so it goes on
+#   from the build it stopped at.
 export HOME=/root XDG_CACHE_HOME=/root/.cache
 mkdir -p /tmp/nixhooks "$XDG_CACHE_HOME"
 printf '#!/bin/sh\nrm -rf /homeless-shelter\n' > /tmp/nixhooks/post-build
@@ -314,13 +354,34 @@ clear_homeless() { # $1: what left it (for the message)
     fi
 }
 clear_homeless "the image"
+# The watcher (it ends with the container). The first few finds are named, with what was inside.
+(
+    seen=0
+    while sleep 0.2; do
+        [ -e /homeless-shelter ] || continue
+        if [ "$seen" -lt 5 ]; then
+            echo "==> /homeless-shelter appeared during a Nix step (contents: $(ls -A /homeless-shelter /homeless-shelter/.cache /homeless-shelter/.config 2>/dev/null | tr '\n' ' ')): removed" >&2
+        fi
+        seen=$((seen + 1))
+        rm -rf /homeless-shelter
+    done
+) &
 # in_shell LABEL COMMAND: COMMAND in the build environment (shell.nix), with the home above.
 in_shell() {
-    local status=0
-    clear_homeless "an earlier step"
-    nix-shell shell.nix --run "export HOME=/root XDG_CACHE_HOME=/root/.cache; $2" || status=$?
-    clear_homeless "$1"
-    return "$status"
+    local status attempt
+    for attempt in 1 2 3; do
+        status=0
+        clear_homeless "an earlier step"
+        nix-shell shell.nix --run "export HOME=/root XDG_CACHE_HOME=/root/.cache; $2" 2>&1 |
+            tee /tmp/step.log || status=$?
+        clear_homeless "$1"
+        if [ "$status" -ne 0 ] && [ "$attempt" -lt 3 ] &&
+           grep -q 'home directory "/homeless-shelter" exists' /tmp/step.log; then
+            echo "==> Nix stopped on /homeless-shelter during $1: running it again (attempt $((attempt + 1)) of 3; what was built is kept)"
+            continue
+        fi
+        return "$status"
+    done
 }
 export NIX_CONFIG="experimental-features = nix-command flakes
 sandbox = false

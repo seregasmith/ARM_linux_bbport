@@ -74,11 +74,13 @@ std::uint32_t FindType(std::uint32_t bits, bool in_vram) {
         }
     }
     const auto want = vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCached;
-    for (std::uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i) {
-        const auto flags = memory_properties.memoryTypes[i].propertyFlags;
-        if ((bits & (1u << i)) && (flags & want) == want &&
-            !(flags & vk::MemoryPropertyFlagBits::eDeviceLocal) && TypeAllowed(flags)) {
-            return i;
+    for (const bool device_local : {false, true}) {
+        for (std::uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i) {
+            const auto flags = memory_properties.memoryTypes[i].propertyFlags;
+            if ((bits & (1u << i)) && (flags & want) == want && SystemType(flags, device_local) &&
+                TypeAllowed(flags)) {
+                return i;
+            }
         }
     }
     return ~0u;
@@ -174,6 +176,7 @@ bool Usable(const Vulkan::Instance& instance) {
     static const bool usable = [&] {
         device = instance.GetDevice();
         memory_properties = instance.GetPhysicalDevice().getMemoryProperties();
+        NoteDeviceType(instance);
         uncached = instance.IsGuestUncached();
         if (uncached) {
             std::printf("Guest memory: the GPU reads it uncached (BB_GUEST_UNCACHED=1, "
@@ -322,6 +325,7 @@ void Install(const Vulkan::Instance& instance) {
     // One chunk per direct allocation where the dma-buf maps at offset 0 only, and with the
     // layer's memory module (a mapping then lies whole in one chunk buffer).
     runtime_memory_set_guest_chunk_whole(LayerMemory() || (!host && whole_only) ? 1 : 0);
+    runtime_memory_set_guest_chunk_offsets_from_start(!host && offsets_from_start ? 1 : 0);
     runtime_memory_set_guest_chunk_allocator(host ? &AllocImported : &AllocChunk);
 
     std::printf("Guest memory: direct memory chunks come from Vulkan\n");

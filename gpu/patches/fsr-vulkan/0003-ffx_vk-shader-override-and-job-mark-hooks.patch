@@ -1,0 +1,52 @@
+From: bbport
+Subject: [PATCH] ffx_vk: the port's shader override and job mark hooks
+
+ffxVkShaderOverride (gpu/upscale/ffx_shaders.cpp) gives the SPIR-V of a pipeline in place of the
+packaged blob: the port's faster FSR 3.1 frame generation passes, same resources and bindings.
+ffxVkJobMark (gpu/upscale/fg_profile.cpp, BB_FG_PROFILE=1) is called before each compute dispatch.
+The port's 0.7 sources use both; no patch here defined them.
+---
+--- a/upstream/ffx-1.1.4/sdk/src/backends/vk/ffx_vk.cpp
++++ b/upstream/ffx-1.1.4/sdk/src/backends/vk/ffx_vk.cpp
+@@ -35,6 +35,15 @@
+ 
+ #include <vulkan/vulkan.h>
+ 
++// bbport: hooks the port sets. ffxVkShaderOverride gives SPIR-V for a pipeline in place of the
++// packaged blob (same resources and bindings: the layout still comes from the blob's reflection);
++// true when it did. ffxVkJobMark is called before each compute dispatch (profiling).
++extern "C" {
++bool (*ffxVkShaderOverride)(uint32_t effect, uint32_t pass, uint32_t permutationOptions,
++                            const uint32_t** words, size_t* size) = nullptr;
++void (*ffxVkJobMark)(uint32_t x, uint32_t y, uint32_t z) = nullptr;
++}
++
+ // prototypes for functions in the interface
+ FfxVersionNumber       GetSDKVersionVK(FfxInterface* backendInterface);
+ FfxErrorCode           GetEffectGpuMemoryUsageVK(FfxInterface* backendInterface, FfxUInt32 effectContextId, FfxEffectMemoryUsage* outVramUsage);
+@@ -3738,6 +3747,14 @@
+     shaderModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+     shaderModuleCreateInfo.pCode = (uint32_t*)shaderBlob.data;
+     shaderModuleCreateInfo.codeSize = shaderBlob.size;
++    const uint32_t* overrideWords = nullptr;
++    size_t overrideSize = 0;
++    if (ffxVkShaderOverride &&
++        ffxVkShaderOverride(uint32_t(effect), uint32_t(pass), permutationOptions, &overrideWords, &overrideSize) &&
++        overrideWords && overrideSize) {
++        shaderModuleCreateInfo.pCode = overrideWords;
++        shaderModuleCreateInfo.codeSize = overrideSize;
++    }
+ 
+     if (backendContext->vkFunctionTable.vkCreateShaderModule(backendContext->device, &shaderModuleCreateInfo, nullptr, &shaderModule) != VK_SUCCESS) {
+         return FFX_ERROR_BACKEND_API_ERROR;
+@@ -4092,6 +4109,10 @@
+             backendContext->vkFunctionTable.vkCmdBindDescriptorSets(vkCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout->pipelineLayout, pipelineLayout->staticBufferUavSet, 1, &effectContext.bindlessBufferUavDescriptorSet, 0, nullptr);
+     }
+     
++    if (ffxVkJobMark)
++        ffxVkJobMark(job->computeJobDescriptor.dimensions[0], job->computeJobDescriptor.dimensions[1],
++                     job->computeJobDescriptor.dimensions[2]);
++
+     // Dispatch (or dispatch indirect)
+     if (job->computeJobDescriptor.pipeline.cmdSignature)
+     {

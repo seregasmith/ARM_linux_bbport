@@ -114,7 +114,7 @@ static void ensure_chunks(uint64_t phys, uint64_t size) {
     for (uint64_t c=phys/CHUNK;c<=last;++c) {
         if (chunk_fds[c]!=-1) continue;
         int fd=chunk_alloc ? chunk_alloc(c*CHUNK,chunk_size(c)) : -1;
-        if (fd>=0 && mmap(backing_base+c*CHUNK,chunk_size(c),PROT_READ|PROT_WRITE,MAP_SHARED|MAP_FIXED,fd,0)==MAP_FAILED) {
+        if (fd>=0 && map_chunk(backing_base+c*CHUNK,chunk_size(c),PROT_READ|PROT_WRITE,fd,0)==MAP_FAILED) {
             close(fd);
             fd=-1;
         }
@@ -267,7 +267,7 @@ static void *map_phys(uintptr_t address, uint64_t size, int prot, uint64_t phys)
         const Region *r=region_at(at,&next);
         const uint64_t room=r ? r->phys+r->size-at : next-at, n=size-done<room ? size-done : room;
         void *p = r && r->fd>=0
-            ? mmap((void *)(address+done),n,prot,MAP_SHARED|MAP_FIXED,r->fd,(off_t)(at-r->phys))
+            ? map_chunk((void *)(address+done),n,prot,r->fd,at-r->phys)
             : mmap((void *)(address+done),n,prot,MAP_SHARED|MAP_FIXED,pool_fd,(off_t)at);
         if (p==MAP_FAILED) {
             static int reported;
@@ -284,7 +284,7 @@ static void *map_phys(uintptr_t address, uint64_t size, int prot, uint64_t phys)
         const uint64_t at=phys+done, c=at/CHUNK;
         const uint64_t room=c*CHUNK+chunk_size(c)-at, n=size-done<room ? size-done : room;
         void *p = chunk_fds[c]>=0
-            ? mmap((void *)(address+done),n,prot,MAP_SHARED|MAP_FIXED,chunk_fds[c],(off_t)(at-c*CHUNK))
+            ? map_chunk((void *)(address+done),n,prot,chunk_fds[c],at-c*CHUNK)
             : mmap((void *)(address+done),n,prot,MAP_SHARED|MAP_FIXED,pool_fd,(off_t)at);
         if (p==MAP_FAILED) {
             static int reported;

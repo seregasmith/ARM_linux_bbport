@@ -357,6 +357,7 @@ bool DmaBufWorks(const Vulkan::Instance& instance) {
         }
         const vk::Device dev = instance.GetDevice();
         const vk::PhysicalDeviceMemoryProperties props = instance.GetPhysicalDevice().getMemoryProperties();
+        NoteDeviceType(instance);
         constexpr u64 Size = 2 << 20, Offset = 1 << 20;
         const vk::ExternalMemoryBufferCreateInfo external{
             .handleTypes = vk::ExternalMemoryHandleTypeFlagBits::eDmaBufEXT,
@@ -373,14 +374,23 @@ bool DmaBufWorks(const Vulkan::Instance& instance) {
         const auto requirements = dev.getBufferMemoryRequirements(buffer);
         std::uint32_t type = ~0u;
         const auto want = vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCached;
-        for (std::uint32_t i = 0; i < props.memoryTypeCount && type == ~0u; ++i) {
-            const auto flags = props.memoryTypes[i].propertyFlags;
-            if ((requirements.memoryTypeBits & (1u << i)) && (flags & want) == want &&
-                !(flags & vk::MemoryPropertyFlagBits::eDeviceLocal)) {
-                type = i;
+        for (const bool device_local : {false, true}) {
+            for (std::uint32_t i = 0; i < props.memoryTypeCount && type == ~0u; ++i) {
+                const auto flags = props.memoryTypes[i].propertyFlags;
+                if ((requirements.memoryTypeBits & (1u << i)) && (flags & want) == want &&
+                    SystemType(flags, device_local)) {
+                    type = i;
+                }
             }
         }
+        if (type != ~0u && integrated &&
+            (props.memoryTypes[type].propertyFlags & vk::MemoryPropertyFlagBits::eDeviceLocal)) {
+            std::printf("Guest memory: integrated GPU: dma-buf chunks of memory type %u (cached, "
+                        "coherent; every type is device-local here)\n", type);
+        }
         bool ok = false;
+        int map_error = 0;       // bbport: errno of a failed mapping of the whole buffer
+        bool mismatch = false;   // bbport: both mappings worked but did not show the same memory
         vk::DeviceMemory memory{};
         int fd = -1;
         const vk::ExportMemoryAllocateInfo export_info{
@@ -399,6 +409,7 @@ bool DmaBufWorks(const Vulkan::Instance& instance) {
         if (fd >= 0) {
             // The whole buffer and one page inside it, writing through one, reading through the other.
             void* whole = mmap(nullptr, Size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+            map_error = whole == MAP_FAILED ? errno : 0;
             void* page = mmap(nullptr, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, Offset);
             // BB_GUEST_WHOLE_CHUNKS=1: as if the offset mapping failed (tests the NVIDIA path).
             if (bb_env_on("BB_GUEST_WHOLE_CHUNKS") && page != MAP_FAILED) {
@@ -408,6 +419,18 @@ bool DmaBufWorks(const Vulkan::Instance& instance) {
             if (whole != MAP_FAILED && page != MAP_FAILED) {
                 *static_cast<volatile std::uint32_t*>(page) = 0x5ca1ab1e;
                 ok = static_cast<volatile std::uint32_t*>(whole)[Offset / 4] == 0x5ca1ab1e;
+                // bbport: a mapping at an offset that shows the buffer's start instead (msm: its
+                // fault handler takes the page from the address within the mapping, not from the
+                // mapping's offset). The start maps right, so it is the offset-0-only case.
+                if (!ok && static_cast<volatile std::uint32_t*>(whole)[0] == 0x5ca1ab1e) {
+                    std::printf("Guest memory: the driver's dma-buf maps from its start at any "
+                                "offset (msm): offset 0 only\n");
+                    ok = whole_only = offsets_from_start = true;
+                    static_cast<volatile std::uint32_t*>(whole)[0] = 0;
+                }
+                if (!ok) {
+                    mismatch = true;
+                }
             } else if (whole != MAP_FAILED) {
                 // Offset 0 only (NVIDIA): a second mapping of the start must alias the first.
                 void* again = mmap(nullptr, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
@@ -428,7 +451,7 @@ bool DmaBufWorks(const Vulkan::Instance& instance) {
                                 "(uncached?): not used\n",
                                 speed);
                     ok = false;
-                    whole_only = false;
+                    whole_only = offsets_from_start = false;
                 }
             }
             if (whole != MAP_FAILED) {
@@ -444,8 +467,11 @@ bool DmaBufWorks(const Vulkan::Instance& instance) {
         }
         dev.destroyBuffer(buffer);
         if (!ok) {
-            std::printf("Guest memory: the driver's dma-buf cannot be mapped (%s)\n",
-                        fd >= 0 ? "mmap failed" : "no exportable cached system memory");
+            std::printf("Guest memory: the driver's dma-buf cannot be mapped (%s%s%s)\n",
+                        fd < 0       ? "no exportable cached system memory"
+                        : mismatch   ? "two mappings do not show the same memory"
+                                     : "mmap failed",
+                        map_error ? ": " : "", map_error ? std::strerror(map_error) : "");
         } else if (whole_only) {
             std::printf("Guest memory: the driver's dma-buf maps at offset 0 only: one chunk per "
                         "direct memory allocation\n");
