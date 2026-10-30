@@ -18,11 +18,13 @@ from bbport_launcher_online import OnlinePage
 from bbport_launcher_savepoint import SavePoint
 from bbport_launcher_trophies import TrophiesPage
 from bbport_launcher_upscalers import UpscalerFiles
+from bbport_launcher_aot import NativeCpu, native_cpu_available
+from bbport_launcher_profile import PerfProfile
 
 
 # The window's pages and lists live in the bbport_launcher_*.py modules (mixins).
 class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFiles, SavePoint,
-                     GamepadNavigation, Adw.ApplicationWindow):
+                     NativeCpu, PerfProfile, GamepadNavigation, Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="Bloodborne")
         self.set_default_size(1000, 760)
@@ -32,6 +34,7 @@ class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFi
         self.process = None
         self.stream = None
         self.fsr411_build = None  # tools/fsr4cap/build_assets.sh while it runs
+        self.aot_build = None  # scripts/aot_build.py while it runs (bbport_launcher_aot.py)
         self.build()
         self.connect("close-request", self.on_close)
         self.start_pad_navigation()  # bbport_launcher_gamepad.py
@@ -127,8 +130,10 @@ class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFi
         self.launch_button.remove_css_class("destructive-action" if not running else "suggested-action")
         self.launch_button.add_css_class("destructive-action" if running else "suggested-action")
         # The game and an FSR 4.1.1 build do not run together (both want the GPU, the build
-        # replaces the assets the game reads).
-        self.launch_button.set_sensitive(self.fsr411_build is None)
+        # replaces the assets the game reads), nor with a native code build (it remakes the game
+        # image in out/, and wants every core).
+        self.launch_button.set_sensitive(self.fsr411_build is None and self.aot_build is None)
+        self.update_aot_rows()
         if hasattr(self, "fsr411_button"):
             self.fsr411_button.set_sensitive(not running)
         if hasattr(self, "fsr412_button"):
@@ -191,6 +196,9 @@ class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFi
         shortcut_row.add_suffix(shortcut_button)
         game.add(shortcut_row)
         sec["game"].add(game)
+        # The native CPU, aarch64 only: the game's code compiled on this device (bbport_launcher_aot.py).
+        if native_cpu_available():
+            sec["game"].add(self.build_native_cpu_group())
 
         mode = Adw.PreferencesGroup(title=tr("Видеокарта"))
         # The GPU the game runs on, as in shadPS4 (laptops with two GPUs).
@@ -506,6 +514,7 @@ class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFi
                                          subtitle="BB_GPU_PROFILE",
                                          active=self.settings["gpu_profile"])
         dev.add(self.profile_row)
+        self.build_profile_rows(dev)
         self.validation_row = Adw.SwitchRow(title=tr("Слои валидации Vulkan"),
                                             subtitle=tr("Сильно замедляет"),
                                             active=self.settings["vk_validation"])
@@ -538,7 +547,7 @@ class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFi
             "mods_enabled": self.mods_enabled_row, "save_snapshots": self.save_snapshots_row,
             "mangohud": self.mangohud_row,
             "save_log": self.save_log_row, "crash_diag": self.crash_diag_row,
-            "frame_stats": self.stats_row, "gpu_profile": self.profile_row,
+            "frame_stats": self.stats_row, "gpu_profile": self.profile_row, "perf_profile": self.perf_profile_row,
             "vk_validation": self.validation_row, **self.camera_speed_rows, **self.effect_rows,
         }
         # Rows whose subtitle shows a state (a path, a device): the description is a tooltip.
@@ -688,7 +697,8 @@ class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFi
             tooltip = tr("Bloodborne CUSA03173, версия 1.09")
         self.game_status.set_from_icon_name("object-select-symbolic" if ok and not problem else "dialog-warning-symbolic")
         self.game_status.set_tooltip_text(tooltip)
-        self.launch_button.set_sensitive(ok or self.process is not None)
+        self.launch_button.set_sensitive((ok or self.process is not None) and self.aot_build is None)
+        self.update_aot_rows()  # the library belongs to the game folder
 
     def on_choose_game(self, _button):
         def chosen(path):
@@ -862,6 +872,7 @@ class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFi
         s["save_log"] = self.save_log_row.get_active()
         s["crash_diag"] = self.crash_diag_row.get_active()
         s["gpu_profile"] = self.profile_row.get_active()
+        s["perf_profile"] = self.perf_profile_row.get_active()
         s["vk_validation"] = self.validation_row.get_active()
         s["extra_env"] = self.extra_row.get_text().strip()
         s["trophy_key"] = self.trophy_key_row.get_text().strip()
@@ -916,7 +927,7 @@ class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFi
         self.ini, self.ini_lines = load_ini()
 
     def environment(self):
-        return game_environment(self.settings)
+        return self.profile_environment(game_environment(self.settings))
 
     # --- mods ----------------------------------------------------------------------------
 
@@ -933,6 +944,9 @@ class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFi
     def on_launch(self, _button):
         if self.process:
             self.stop_game()
+            return
+        if self.aot_build:
+            self.toasts.add_toast(Adw.Toast(title=tr("Идёт сборка нативного кода: дождитесь её или отмените")))
             return
         npid = self.npid_row.get_text().strip()
         if online_module() and not self.online_row.get_active() and npid and hasattr(Adw, "AlertDialog"):
@@ -973,6 +987,7 @@ class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFi
         self.stream = Gio.DataInputStream.new(self.process.get_stdout_pipe())
         self.read_line()
         self.process.wait_async(None, self.on_exit)
+        self.start_profile(int(self.process.get_identifier()))  # Developer: performance profile (when on)
         self.stop_pad_navigation()  # the game reads the gamepad itself
         self.update_launch_button()
         self.select_section("log")
@@ -988,6 +1003,7 @@ class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFi
         if line is None:
             return
         self.append_log(line + "\n")
+        self.profile_line(line)
         self.read_line()
 
     def stop_game(self):
@@ -1015,6 +1031,7 @@ class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFi
             pass
         status = process.get_exit_status() if process.get_if_exited() else -1
         self.process = None
+        self.close_profile_log()  # the profile writes its summary (on_profile_done shows it)
         self.update_launch_button()
         self.update_game_status()
         self.refresh_trophies()  # what this session unlocked, and the names once decrypted
@@ -1026,8 +1043,11 @@ class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFi
         self.stop_pad_navigation()
         if self.process:
             self.stop_game()
+        self.stop_profile()
         if self.fsr411_build:
             self.stop_fsr411_build()
+        if self.aot_build:
+            self.stop_aot_build()  # the finished parts stay: the next build goes on from there
         return False
 
     # --- FSR 4.1.1 from the user's DLL -----------------------------------------------------
@@ -1066,9 +1086,22 @@ def build_fsr411(arguments):
     return subprocess.call(command, env=env, cwd=PORT_DIR)
 
 
+def build_aot(arguments):
+    """--build-aot [scripts/aot_build.py options]: the launcher's native code build for the saved game folder, without a
+    window (SSH, Steam's game mode)."""
+    settings = load_settings()
+    command = [sys.executable, str(PORT_DIR / "scripts" / "aot_build.py"),
+               "--game", str(Path(settings["game_dir"]).expanduser()), "--data", str(DATA_DIR)]
+    if settings.get("aot_tool_dir"):
+        command += ["--tool", settings["aot_tool_dir"]]
+    return subprocess.call(command + arguments, cwd=PORT_DIR)
+
+
 if __name__ == "__main__":
     if "--play" in sys.argv[1:]:
         sys.exit(play())
     if "--build-fsr411" in sys.argv[1:]:
         sys.exit(build_fsr411(sys.argv[sys.argv.index("--build-fsr411") + 1:]))
+    if "--build-aot" in sys.argv[1:]:
+        sys.exit(build_aot(sys.argv[sys.argv.index("--build-aot") + 1:]))
     sys.exit(LauncherApp().run(sys.argv))

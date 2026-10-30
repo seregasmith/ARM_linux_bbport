@@ -7,6 +7,7 @@
 
 #include "bbport_map_near.h"
 #include "bbport_guest_code_hooks.h"
+#include "../../src/guest_cpu.h"
 
 #include <algorithm>
 #include <atomic>
@@ -116,6 +117,68 @@ void WriteCode(std::uint8_t* code, const std::uint8_t* bytes, std::size_t size) 
 
 
 #endif
+
+#if !defined(__x86_64__)
+/// A hook set in a native hook slot of the ahead-of-time recompiled CPU (cpu/aot, src/guest_cpu.h guest_cpu_hook_slot): the units call
+/// SlotAdapter with the registers at the start of the hooked instruction instead of jumping to a trampoline, and no code is written.
+/// As in the Android port (github.com/ducvd89/Bloodborne-Android, gpu/shim/bbport_guest_code_hooks.cpp). FEXCore has no slots.
+struct SlotContext {
+    std::uint64_t tag;
+    GuestCodeHook hook;
+    const std::uint8_t* skip_flag;
+};
+std::mutex slot_mutex;
+std::set<std::uintptr_t> slot_sites;
+
+std::uint32_t SlotAdapter(void* context, GuestRegsEx* r) {
+    const auto* c = static_cast<const SlotContext*>(context);
+    alignas(16) GuestRegisterSnapshot s;
+    s.rax = r->gpr[GUEST_RAX]; s.rbx = r->gpr[GUEST_RBX]; s.rcx = r->gpr[GUEST_RCX]; s.rdx = r->gpr[GUEST_RDX];
+    s.rsi = r->gpr[GUEST_RSI]; s.rdi = r->gpr[GUEST_RDI]; s.rbp = r->gpr[GUEST_RBP]; s.rsp = r->gpr[GUEST_RSP];
+    s.r8 = r->gpr[GUEST_R8]; s.r9 = r->gpr[GUEST_R9]; s.r10 = r->gpr[GUEST_R10]; s.r11 = r->gpr[GUEST_R11];
+    s.r12 = r->gpr[GUEST_R12]; s.r13 = r->gpr[GUEST_R13]; s.r14 = r->gpr[GUEST_R14]; s.r15 = r->gpr[GUEST_R15];
+    s.rflags = r->rflags;
+    s.mxcsr = r->mxcsr;
+    static_assert(sizeof(s.ymm) == sizeof(r->ymm));
+    std::memcpy(s.ymm.data(), r->ymm, sizeof(r->ymm));
+    c->hook(c->tag, &s);
+    r->gpr[GUEST_RAX] = s.rax; r->gpr[GUEST_RBX] = s.rbx; r->gpr[GUEST_RCX] = s.rcx; r->gpr[GUEST_RDX] = s.rdx;
+    r->gpr[GUEST_RSI] = s.rsi; r->gpr[GUEST_RDI] = s.rdi; r->gpr[GUEST_RBP] = s.rbp; r->gpr[GUEST_RSP] = s.rsp;
+    r->gpr[GUEST_R8] = s.r8; r->gpr[GUEST_R9] = s.r9; r->gpr[GUEST_R10] = s.r10; r->gpr[GUEST_R11] = s.r11;
+    r->gpr[GUEST_R12] = s.r12; r->gpr[GUEST_R13] = s.r13; r->gpr[GUEST_R14] = s.r14; r->gpr[GUEST_R15] = s.r15;
+    std::memcpy(r->ymm, s.ymm.data(), sizeof(r->ymm));
+    if (c->skip_flag != nullptr && *c->skip_flag != 0) {
+        // Function entries only, as in the trampoline: a set flag (cleared here) returns from the game's function at once.
+        *const_cast<std::uint8_t*>(c->skip_flag) = 0;
+        return GUEST_HOOK_RETURN;
+    }
+    return GUEST_HOOK_CONTINUE;
+}
+
+bool InstallSlotHook(void* address, std::span<const std::uint8_t> expected, std::uint64_t tag, GuestCodeHook hook,
+                     const std::uint8_t* skip_flag) {
+    const auto begin = reinterpret_cast<std::uintptr_t>(address);
+    if (!hook || expected.empty() || !guest_cpu_has_hook_slot(begin)) {
+        return false; // FEXCore, or no slot at this site in the library: the hook stays off, as before
+    }
+    std::scoped_lock lock{slot_mutex};
+    if (std::memcmp(address, expected.data(), expected.size()) != 0) {
+        std::fprintf(stderr, "Guest code hook at %p: the code differs (another build?)\n", address);
+        return false;
+    }
+    if (slot_sites.count(begin) != 0) {
+        std::fprintf(stderr, "Guest code hook at %p overlaps another one\n", address);
+        return false;
+    }
+    auto* context = new SlotContext{tag, hook, skip_flag};
+    if (!guest_cpu_hook_slot(begin, expected.size(), &SlotAdapter, context)) {
+        delete context;
+        return false;
+    }
+    slot_sites.insert(begin);
+    return true;
+}
+#endif
 std::atomic<bool> code_writable{false};
 
 } // namespace
@@ -132,10 +195,10 @@ void KeepGuestCodeWritable() {
 bool InstallGuestCodeHook(void* address, std::span<const std::uint8_t> expected, std::uint64_t tag,
                           GuestCodeHook hook, const std::uint8_t* skip_flag) {
 #if !defined(__x86_64__)
-    // bbport: the trampoline is x86-64 code that calls host code, which the guest CPU (FEXCore)
-    // cannot run: no such hooks on other hosts.
-    (void)address, (void)expected, (void)tag, (void)hook, (void)skip_flag;
-    return false;
+    // bbport: the trampoline is x86-64 code that calls host code, which FEXCore cannot run, and the
+    // ahead-of-time CPU never runs rewritten code: on other hosts a hook exists only where the
+    // native library has a hook slot (cpu/aot); with FEXCore there are none and the hook stays off.
+    return InstallSlotHook(address, expected, tag, hook, skip_flag);
 #else
     constexpr std::size_t SnapshotOffset = 0;
     constexpr std::size_t ScratchR11Offset = sizeof(GuestRegisterSnapshot);

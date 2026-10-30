@@ -39,9 +39,10 @@ struct alignas(16) GuestRegisterSnapshot {
     alignas(16) std::array<std::array<std::uint8_t, 32>, 16> ymm;
 };
 
-/// Called on the game's thread, on its stack (keep it small), with the System V ABI. bbport: hooks
-/// exist on x86-64 hosts only (InstallGuestCodeHook returns false elsewhere), where the attribute
-/// means something.
+/// Called on the game's thread, on its stack (keep it small), with the System V ABI. bbport: x86-64
+/// hosts get trampolines, where the attribute means something. Other hosts get a hook only where the
+/// ahead-of-time recompiled CPU's library has a native hook slot (cpu/aot): called on the host stack
+/// with the registers as a snapshot; FEXCore has none (InstallGuestCodeHook returns false).
 #if defined(__x86_64__)
 #define BB_GUEST_CODE_HOOK_ABI __attribute__((sysv_abi))
 #else

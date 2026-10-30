@@ -2551,6 +2551,36 @@
      }
     },
     {
+     "key": "perf_profile",
+     "type": "bool",
+     "store": "settings",
+     "default": false,
+     "platforms": [
+      "linux"
+     ],
+     "title": {
+      "ru": "Записывать профиль производительности",
+      "en": "Record a performance profile",
+      "pt_BR": "Gravar um perfil de desempenho",
+      "zh_CN": "记录性能剖析",
+      "fr_FR": "Enregistrer un profil de performances"
+     },
+     "description": {
+      "ru": "При каждом запуске: загрузка CPU по потокам игры и порта, ядра, GPU, температура, питание и FPS — в папку profiles каталога данных. Кнопка ниже сравнивает два последних (например, FEX и нативный CPU на одном месте).",
+      "en": "At every start: CPU per thread of the game and of the port, the cores, the GPU, temperature, power and FPS, into the profiles folder of the data directory. The button below compares the last two (FEX against the native CPU at the same spot, say).",
+      "pt_BR": "A cada início: CPU por thread do jogo e do port, os núcleos, a GPU, temperatura, consumo e FPS, na pasta profiles do diretório de dados. O botão abaixo compara os dois últimos (por exemplo, FEX e a CPU nativa no mesmo lugar).",
+      "zh_CN": "每次启动时：游戏和移植层各线程的 CPU、各核心、GPU、温度、功耗和帧率，保存到数据目录的 profiles 文件夹。下方按钮比较最近两次（例如同一地点的 FEX 与原生 CPU）。",
+      "fr_FR": "À chaque lancement : le CPU par thread du jeu et du portage, les cœurs, le GPU, la température, la consommation et les images/s, dans le dossier profiles du répertoire de données. Le bouton ci-dessous compare les deux derniers (par exemple FEX et le CPU natif au même endroit)."
+     },
+     "group": {
+      "ru": "Журналы",
+      "en": "Logs",
+      "pt_BR": "Logs",
+      "zh_CN": "日志",
+      "fr_FR": "Journaux"
+     }
+    },
+    {
      "key": "crash_diag",
      "type": "bool",
      "store": "settings",

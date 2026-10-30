@@ -56,6 +56,22 @@ if ! fsr_patches_apply --check 2>/dev/null; then
     git -C gpu/third_party/fsr-vulkan checkout -- .
 fi
 fsr_patches_apply
+# A build folder configured in another Nix store (a cleaned or new Nix volume, another machine)
+# names store paths that are gone: its compilers, and pkg-config results that CMake keeps and
+# never looks up again (SDL3's include folder: "Imported target PkgConfig::SDL3 includes
+# non-existent path"). Such a folder is configured again from scratch; its objects are rebuilt.
+drop_stale_cmake_cache() {
+    local cache=$1/CMakeCache.txt path
+    [[ -f $cache ]] || return 0
+    while read -r path; do
+        if [[ ! -e $path ]]; then
+            echo "$1: its CMake cache names $path, which is gone (another Nix store): configuring it again"
+            rm -rf "$cache" "$1/CMakeFiles" "$1/build.ninja"
+            return 0
+        fi
+    done < <(grep -o '/nix/store/[a-z0-9]\{32\}-[^/;: "]*' "$cache" | sort -u)
+}
+for dir in out/gpu out/dlss-bridge out/fex out/aot-cpu; do drop_stale_cmake_cache "$dir"; done
 cmake -S gpu -B out/gpu -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBB_PGO="$pgo" \
     -DBB_LTO="${BB_LTO:-ON}" -DBB_PGO_DIR="$PWD/pgo" > out/gpu-cmake.log
 grep '^-- Online module' out/gpu-cmake.log || true
@@ -103,6 +119,17 @@ if [[ $(uname -m) == aarch64 ]]; then
     fi
     echo 'Guest CPU: FEXCore (out/fex/libbbcpu.so)'
     cpu=(-Lout/fex -lbbcpu -Wl,-rpath,'$ORIGIN/cpu' -Wl,-rpath,"$PWD/out/fex")
+    # The other guest CPU: ahead-of-time recompiled code only (cpu/aot; BB_AOT=<libbbaot.so>), out/aot-cpu/libbbcpu.so. The same
+    # functions and soname as FEX's library, so bb-probe (linked against FEX's) runs with either: run.sh puts this one first on the
+    # library path when BB_AOT is set (docs/AOT_LAUNCHER_PLAN.md). BB_AOT_CPU=0: not built.
+    if [[ ${BB_AOT_CPU:-1} != 0 ]]; then
+        [[ -f out/aot-cpu/build.ninja ]] || cmake -S cpu/aot -B out/aot-cpu -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo >/dev/null
+        if ! ninja -C out/aot-cpu bbcpu > out/aot-cpu-build.log 2>&1; then
+            grep -v '^\[' out/aot-cpu-build.log | tail -40 >&2
+            echo 'Ahead-of-time guest CPU library build failed (full log: out/aot-cpu-build.log; BB_AOT_CPU=0 skips it)' >&2; exit 1
+        fi
+        echo 'Guest CPU with BB_AOT: native units only (out/aot-cpu/libbbcpu.so)'
+    fi
 fi
 runtime=(src/runtime*.c)
 # Third-party decoders: compiled once, without this project's -Werror policy.

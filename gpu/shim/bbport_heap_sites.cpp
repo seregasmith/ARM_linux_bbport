@@ -221,6 +221,14 @@ bool InGame(u64 v) {
 
 namespace {
 void InstallWrappers(bool counters) {
+#if !defined(__x86_64__)
+    // bbport: the wrappers are host functions in the game's malloc table and call the game's malloc as native
+    // code: x86-64 hosts only. Elsewhere the guest CPU would jump to a host address (the native CPU stopped with "guest
+    // code ran at 0xffff..., outside the image" once the image sat at 0x800000000, where this looks). Off: the frame
+    // overlap's leak watch (gnm_driver.cpp, WatchOverlapLeak) does not count there.
+    (void)counters;
+    return;
+#endif
     static const bool wanted = bb_env_on("BB_HEAP_SITES");
     static bool done = false;
     // Bloodborne's libc.prx (its slots at its link address): other games have none here.

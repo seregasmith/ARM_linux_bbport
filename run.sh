@@ -83,6 +83,44 @@ fi
 "$PYTHON" scripts/link_libc.py "$game" --out "$out"
 "$PYTHON" scripts/link_modules.py "$game" --out "$out"
 "$PYTHON" scripts/content_profile.py "$game" --out "$out" --sku "${BB_CONTENT_SKU:-full}"
+# Native CPU (AArch64): BB_AOT=<libbbaot.so> runs the game's code as ahead-of-time recompiled native code (cpu/aot,
+# out/aot-cpu/libbbcpu.so) instead of FEXCore's JIT. The library is the game's own code, made from this out/boot-linked.bin by
+# bb-recomp (build_aot_docker.sh; later the launcher, docs/AOT_LAUNCHER_PLAN.md). BB_AOT=auto: $data/aot/<sha256 of
+# boot-linked.bin>/libbbaot.so when there is one. Without a library FEXCore runs the game as before. That CPU runs no code the
+# port rewrites: the frame-rate hooks (code detours) give way to the frame-rate patches (BB_FRAME_HOOKS=0: the tool's catalog has
+# them as the variant part:fps=uncap, if this port's patches.py writes the same bytes) until they have native hook slots. A function
+# patched without a variant, or an address the library does not cover, stops the game and is written to BB_AOT_MISS_LOG
+# ($data/logs/aot-misses.log; bb-recomp --extra-entries takes the misses). BB_AOT_DEBUG=1 lists the patched units at start.
+if [[ $HOSTTYPE == aarch64 && -n ${BB_AOT:-} && $BB_AOT != 0 ]]; then
+    if [[ $BB_AOT == auto ]]; then
+        image_sha=$("$PYTHON" -c 'import hashlib, sys
+h = hashlib.sha256()
+with open(sys.argv[1], "rb") as f:
+    for block in iter(lambda: f.read(1 << 20), b""):
+        h.update(block)
+print(h.hexdigest())' "$out/boot-linked.bin")
+        BB_AOT=$data/aot/$image_sha/libbbaot.so
+    fi
+    [[ $BB_AOT == /* ]] || BB_AOT=$PWD/$BB_AOT
+    if [[ -n ${BB_PREBUILT:-} ]]; then aot_cpu=${BB_AOT_CPU_DIR:-$PWD/bin/aot-cpu}; else aot_cpu=${BB_AOT_CPU_DIR:-$PWD/out/aot-cpu}; fi
+    if [[ ! -f $BB_AOT ]]; then
+        echo "Native CPU: no library for this game image ($BB_AOT): FEXCore runs the game"
+        unset BB_AOT
+    elif [[ ! -f $aot_cpu/libbbcpu.so ]]; then
+        echo "Native CPU: $aot_cpu/libbbcpu.so is missing (build.sh makes it): FEXCore runs the game"
+        unset BB_AOT
+    else
+        export BB_AOT LD_LIBRARY_PATH=$aot_cpu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+        native_cpu=1  # patches.py --native-cpu: the scene size through hook slots (the code keeps the bytes the library knows)
+        export BB_AOT_MISS_LOG=${BB_AOT_MISS_LOG:-$data/logs/aot-misses.log}
+        mkdir -p "${BB_AOT_MISS_LOG%/*}"
+        if [[ -z ${BB_FRAME_HOOKS:-} ]]; then
+            export BB_FRAME_HOOKS=0
+            echo "Native CPU: the frame rate comes from the frame-rate patches (the hooks rewrite code, which this CPU does not run)"
+        fi
+        echo "Native CPU: $BB_AOT with $aot_cpu/libbbcpu.so (missing entries: $BB_AOT_MISS_LOG)"
+    fi
+fi
 # Sizes chosen below for the previous launch are recomputed after an in-game restart.
 if [[ ${BB_AUTO_RENDER_RES:-} == 1 ]]; then
     unset BB_RENDER_RES BB_OUTPUT_RES BB_AUTO_RENDER_RES
@@ -180,7 +218,7 @@ if [[ $large_heaps == 1 ]]; then
     echo "Graphics heaps: larger (${pack:-BB_LARGE_HEAPS=1}), direct memory ${BB_DMEM_MB} MiB (BB_LARGE_HEAPS=0: the game's own sizes)"
 fi
 "$PYTHON" scripts/patches.py --out "$out" --fps "$fps" --extra "${BB_PATCHES:-}" --settings "$BB_CONFIG" --game-dir "$game" --render-res "${BB_RENDER_RES:-}" --output-res "${BB_OUTPUT_RES:-}" \
-    --patches-dir "${BB_PATCHES_DIR:-$data/patches}" --patches-config "${BB_PATCHES_CONFIG:-$data/patches.json}" --large-heaps "$large_heaps"
+    --patches-dir "${BB_PATCHES_DIR:-$data/patches}" --patches-config "${BB_PATCHES_CONFIG:-$data/patches.json}" --large-heaps "$large_heaps" ${native_cpu:+--native-cpu}
 # Memory model and translation: the only one there is (0.7). The GPU uses the game's memory where
 # it is (GPU-visible system memory: dma-buf chunks or imported host memory) and keeps the data it
 # reads often in VRAM through the layer's memory module (no sparse binding; BB_LAYER_MEMORY=0:

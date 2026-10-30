@@ -498,6 +498,39 @@ static void apply_patches(const char *path, Segment *segments, uint64_t ns, cons
     fclose(f);
     printf("Patches: %" PRIu64 " writes, %" PRIu64 " bytes applied, %" PRIu64 " pointers rebased\n",count,bytes,rebased);
 }
+/* The scene size on the native CPU (scripts/patches.py --native-cpu): the resolution patch keeps its 1280x720 template at the
+ * scene's two `mov eax, imm32` (the library has a variant for those exact bytes; another size would leave the function without
+ * native code), and hook slots there load eax with BB_RENDER_RES instead: what the new immediate would do (`mov eax, imm32`
+ * clears the upper half of rax and leaves the flags), then on after the 5 bytes. As the Android port's bbport_display.cpp
+ * (PatchSceneSize). With the size itself in the code (FEXCore, x86-64) or no resolution patch, nothing is done. */
+static uint32_t scene_immediate_slot(void *imm, GuestRegsEx *regs) {
+    regs->gpr[GUEST_RAX] = (uint32_t)(uintptr_t)imm;
+    regs->rip += 5;
+    return GUEST_HOOK_JUMP;
+}
+static void scene_size_slots(unsigned char *image) {
+    const char *env = bb_env("BB_RENDER_RES");
+    unsigned w = 0, h = 0;
+    if (!env || sscanf(env, "%ux%u", &w, &h) != 2 || !w || !h || w >= 1u << 24 || h >= 1u << 24) return;
+    static const struct { uint64_t offset; unsigned template_value; } sites[2] = {{0x02196A6B - 0x400000, 1280}, {0x02196A7A - 0x400000, 720}};
+    for (int i = 0; i < 2; ++i) {
+        const unsigned char *code = image + sites[i].offset;
+        if (code[0] != 0xb8 || (unsigned)(code[1] | code[2] << 8 | code[3] << 16) != sites[i].template_value) return;
+    }
+    if (w == 1280 && h == 720) return;
+    const unsigned values[2] = {w, h};
+    for (int i = 0; i < 2; ++i) {
+        const unsigned char *code = image + sites[i].offset;
+        const uint32_t imm = values[i] | (uint32_t)code[4] << 24;
+        if (!guest_cpu_hook_slot((uintptr_t)image + sites[i].offset, 5, scene_immediate_slot, (void *)(uintptr_t)imm)) {
+            if (i) guest_cpu_hook_slot_clear((uintptr_t)image + sites[0].offset);
+            printf("Display: no hook slot for the scene size at +%#" PRIx64 ": the game draws its scene at 1280x720, not %ux%u\n",
+                   sites[i].offset, w, h);
+            return;
+        }
+    }
+    printf("Display: the game's scene size %ux%u (native hook slots at the resolution patch's immediates)\n", w, h);
+}
 /* Restarts the game through run.sh (the settings menu: a new render resolution is a patch
  * applied at start). Descriptors are closed first so the old GPU device and its memory are
  * released before the new process opens its own. */
@@ -534,7 +567,7 @@ int main(int argc, char **argv) {
        non-PIE brk heap, i.e. below 1 TiB: the guest packs pointers into 40 bits. */
     mallopt(M_ARENA_MAX,1);
     mallopt(M_MMAP_THRESHOLD,32*1024*1024);
-    guest_cpu_init(runtime_low_map);
+    guest_cpu_init(runtime_low_map_top); /* the CPU's own memory from the top: the image keeps 0x800000000 */
 #endif
     if (argc == 2 && !strcmp(argv[1], "--vulkan-only")) return vulkan_smoke();
     /* Shader recipes (gpu/render/shader_rebuild.h): no game here, the guest's addresses stay free. */
@@ -719,6 +752,9 @@ int main(int argc, char **argv) {
     image = allocate(round_page(size));
     if (fread(image, 1, size, f) != size || fgetc(f) != EOF) fail("incorrect memory image size");
     fclose(f);
+    /* The guest CPU learns the image before the GPU library starts: its hooks (engine fixes, guest hooks) go into the native
+     * CPU's hook slots, which it finds by image offset. */
+    guest_cpu_code((uintptr_t)image, round_page(size));
     if (!cpu_only) {
         char title[128]="Bloodborne", serial[16]="UNKNOWN", sfo[4096];
         uint32_t attributes=0;
@@ -736,7 +772,6 @@ int main(int argc, char **argv) {
     unsigned char *traps = allocate(round_page((import_count + 1) * 32));
     unsigned char *data_traps = allocate((import_count + 1) * page_size);
     protect(data_traps, (import_count + 1) * page_size, 0);
-    guest_cpu_code((uintptr_t)image, round_page(size));
     guest_cpu_code((uintptr_t)traps, round_page((import_count + 1) * 32));
     const uintptr_t handler = guest_cpu_host_function((void *)unresolved);
     for (uint64_t i = 0; i < import_count; ++i) {
@@ -779,6 +814,7 @@ int main(int argc, char **argv) {
     }
     runtime_net_image_mapped(image, size); /* online modules that read the original code */
     if (patch_file) apply_patches(patch_file, segments, ns, relocs, nr);
+    scene_size_slots(image);
     if (!cpu_only) bbgpu_patch_image(image, size);
 #ifdef _WIN32
     patch_guest_tls(segments, ns);

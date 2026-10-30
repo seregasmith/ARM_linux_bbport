@@ -7,13 +7,14 @@ at its start (`Environment:` in the log) and warns about `BB_*` names it does no
 `=1: ...` / `=0: ...` / `=N: ...` say what that value does; `set: ...` means any value
 turns it on (even `0`).
 
-## Settings (86)
+## Settings (88)
 
 What players and the launchers set. The menu, bbport.ini and the launcher write most of them; set one by hand to override them.
 
 | Variable | What it does |
 |---|---|
 | `BB_ANISO` | =N: anisotropic filtering of scene textures (default 16) |
+| `BB_AOT` | =path of a libbbaot.so / auto / 0 (aarch64): the game's code as native code compiled ahead of time instead of FEXCore (run.sh: out/aot-cpu/libbbcpu.so; auto: <data>/aot/<sha256 of out/boot-linked.bin>/libbbaot.so when there is one, the launcher's Native CPU switch) |
 | `BB_ASYNC_PIPELINES` | =0: new pipelines of passes drawn every frame compiled at once instead of skipping a draw for a frame or two |
 | `BB_AUTO_RENDER_RES` | =1: render resolution picked from the measured frame rate |
 | `BB_BBSC` | =1: seamless co-op (BBSC), the launcher's co-op switch |
@@ -80,6 +81,7 @@ What players and the launchers set. The menu, bbport.ini and the launcher write 
 | `BB_REACTIVE_MAX` | reactive mask maximum (the menu's) |
 | `BB_REACTIVE_SCALE` | reactive mask scale (the menu's) |
 | `BB_REACTIVE_THRESHOLD` | reactive mask threshold (the menu's) |
+| `BB_RECOMP_DIR` | =dir: bb-recomp for this device, an aot-tool folder (bin/, share/bb-recomp; build_aot_docker.sh device-tool) for scripts/aot_build.py (default <data>/aot-tool) |
 | `BB_RENDER_RES` | =WxH: render resolution through the startup patch (compatibility) |
 | `BB_SAVE_LOG` | =1: the log and frame statistics also kept in logs/ |
 | `BB_SAVE_SNAPSHOTS` | =1: the save point (save scumming): its section in the overlay menu, and the restore it queues applied at the next start (the launcher's Mods and patches switch) |
@@ -100,7 +102,7 @@ What players and the launchers set. The menu, bbport.ini and the launcher write 
 | `BB_UPSCALE_PRESET` | the upscaler quality preset (the menu's) |
 | `BB_USER_NAME` | the PS4 user name (default Hunter) |
 
-## Tuning (231)
+## Tuning (233)
 
 Defaults to change on a machine where they misbehave, workarounds, and switches that turn a fix off for comparison.
 
@@ -108,6 +110,8 @@ Defaults to change on a machine where they misbehave, workarounds, and switches 
 |---|---|
 | `BB_ADB` | path of adb for BB_APP0_ADB (default: adb) |
 | `BB_ANTI_LAG` | =1: AMD Anti-Lag 2 through Mesa's layer (measured ~0 gain, #289) |
+| `BB_AOT_CPU_DIR` | =dir (run.sh): the folder of the ahead-of-time libbbcpu.so (default out/aot-cpu; packaged: bin/aot-cpu) |
+| `BB_AOT_MISS_LOG` | =path: where the native CPU writes the code its library does not cover before it stops the game (run.sh: <data>/logs/aot-misses.log; bb-recomp --extra-entries reads it) |
 | `BB_APP0_ADB` | =serial: the game's files fetched from a phone over adb on first open |
 | `BB_ASYNC_PIPELINE_THREADS` | =N: threads compiling pipelines in the background |
 | `BB_ASYNC_SUBMIT` | =0: the presenter submits the frame itself instead of a submit thread |
@@ -338,12 +342,18 @@ Defaults to change on a machine where they misbehave, workarounds, and switches 
 | `BB_VULKANINFO` | path of vulkaninfo for the launcher |
 | `BB_WORK_RETIRED` | =0: the recording thread and fences do not wait for retired work |
 
-## Diagnostics (274)
+## Diagnostics (281)
 
 Logs, dumps, traces, probes and experiments, for finding bugs. Most cost frame time; none is meant for playing.
 
 | Variable | What it does |
 |---|---|
+| `BB_AOT_CPUID_LOG` | =1: the CPUID leaves and XGETBV(0) the native CPU answers, printed at start |
+| `BB_AOT_DEBUG` | set: the native CPU's details at start, every patched unit among them |
+| `BB_AOT_ELF` | =path: the native CPU loads the library only if it was built from this file (its whole-file hash) |
+| `BB_AOT_STATS` | set: native CPU statistics (dispatches, host calls, misses) every BB_AOT_STATS_SEC and at exit |
+| `BB_AOT_STATS_SEC` | =N: seconds between BB_AOT_STATS reports (default 20) |
+| `BB_AOT_TRACE` | set: the native CPU's transitions and first hook hits, in its crash report |
 | `BB_ARENA_VRAM_ONLY` | =1 (tests): the arena in VRAM only, as NVIDIA's sparse buffers |
 | `BB_AUDIO_DUMP` | =dir: raw converted PCM per audio port |
 | `BB_AUDIO_STATS` | set: audio port statistics |
@@ -414,6 +424,7 @@ Logs, dumps, traces, probes and experiments, for finding bugs. Most cost frame t
 | `BB_EXP_PAGED_IN_PLACE` | =1 (experiment): paged buffers bound in place |
 | `BB_EXP_TRANSIT_TARGET` | =hex address (experiment): that target goes through TransferSrcOptimal |
 | `BB_FENCE_DELAY_TEST` | =1 (test): every 200th fence comes 80 ms late |
+| `BB_FEX_LOG` | set (aarch64, FEXCore): every FEX log message, not only its errors |
 | `BB_FFX_FG_DEBUG` | =1: AMD's frame generation draws its tear lines and reset marks |
 | `BB_FG_DUMP_TRIGGER` | =file: creating it saves real and generated frames, raw |
 | `BB_FG_LUT` | =0: generated frames without the game's display LUT |
@@ -656,12 +667,13 @@ Passed between the launchers, run.py / run.sh and the game. Not meant to be set 
 | `BB_USER_DIR` | the user folder (saves, settings; set by run.py) |
 | `BB_VBLANK_HZ` | =N (default 60, 0: 480): the guest vblank rate (1000 for uncapped; set by run.py) |
 
-## Build (18)
+## Build (28)
 
 Read by the build and packaging scripts only.
 
 | Variable | What it does |
 |---|---|
+| `BB_AOT_CPU` | =0 (build.sh, aarch64): the ahead-of-time guest CPU library (cpu/aot -> out/aot-cpu) is not built |
 | `BB_FSR4CAP_CHECKED` | internal to tools/fsr4cap: the tools were checked |
 | `BB_FSR4CAP_FP8` | =1: also the FP8 FSR 4.1.1 variant through Proton's emulation; 0: never |
 | `BB_FSR4CAP_ON_HOST` | set: the FSR 4.1.1 capture runs without systemd-run |
@@ -676,7 +688,16 @@ Read by the build and packaging scripts only.
 | `BB_MANGOHUD_SRC` | =path: a MangoHud 0.8.4 tree with its subprojects fetched, bundled instead of nixpkgs' (packaging) |
 | `BB_NIXPKGS` | =path: the nixpkgs the build used, when not <nixpkgs> (packaging/appimage.sh) |
 | `BB_PACKAGE_FSR411` | =1: the AppImage carries FSR 4.1.1 models (never in public packages) |
+| `BB_PACKAGE_RECOMP` | =0: the aarch64 AppImage without bb-recomp for the device (packaging/bb-recomp.nix, the launcher's Native CPU) |
 | `BB_PGO` | =generate / use: profile-guided optimization (CMake option) |
 | `BB_PGO_DIR` | the PGO profile folder (CMake option) |
+| `BB_RECOMP_BUNDLED` | =ON: the Rebuild Tool's self-contained build, LLVM and LLD linked in (its CMake option; packaging/bb-recomp.nix) |
+| `BB_RECOMP_DEPS_PREFIX` | the static zlib and zstd for the Rebuild Tool's build (its CMake option; packaging/bb-recomp.nix) |
+| `BB_RECOMP_JOBS` | parallel jobs of the Rebuild Tool's inner FEX build (its CMake option; packaging/bb-recomp.nix) |
+| `BB_RECOMP_LLVM_DIR` | the LLVM release's lib/cmake/llvm for the Rebuild Tool (its CMake option; packaging/bb-recomp.nix) |
+| `BB_RECOMP_MARCH` | -march of the Rebuild Tool and its FEX (its CMake option; packaging/bb-recomp.nix: armv8-a) |
+| `BB_RECOMP_NO_X86` | =ON: the Rebuild Tool without the x86-64 code generator (its CMake option; packaging/bb-recomp.nix) |
+| `BB_RECOMP_SRC` | =path: the Rebuild Tool's sources for the aarch64 AppImage's bb-recomp (default: the checkout next to this tree; build_docker.sh mounts it) |
+| `BB_RECOMP_VERSION` | the tool version the Rebuild Tool writes into libbbaot.json (its CMake option; packaging/bb-recomp.nix) |
 | `BB_TURNIP_PATCHES` | =0: the Turnip tree of BB_TURNIP_SRC built without the port's patches (ARM packaging) |
 | `BB_TURNIP_SRC` | =path: a Mesa source tree for Turnip instead of nixpkgs' release (ARM packaging) |

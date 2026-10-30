@@ -1,5 +1,7 @@
-/* The CPU that runs the game's x86-64 code: the host CPU on x86-64 (src/runtime_cpu.c), FEXCore's
- * JIT elsewhere (cpu/, libbbcpu.so). Guest and host share one address space either way; what
+/* The CPU that runs the game's x86-64 code: the host CPU on x86-64 (src/runtime_cpu.c); elsewhere libbbcpu.so, one of two:
+ * FEXCore's JIT (cpu/guest_cpu_fex.cpp, out/fex) or ahead-of-time recompiled native code (cpu/aot, out/aot-cpu: the units of
+ * libbbaot.so, nothing else; run.sh picks it when BB_AOT is set). The interface is the Android port's (github.com/ducvd89/
+ * Bloodborne-Android, src/guest_cpu.h), so its cpu/ builds unchanged. Guest and host share one address space either way; what
  * differs is how control crosses between them, which goes through these calls:
  *  - host functions handed to the guest (imports) are wrapped by guest_cpu_host_function;
  *  - guest functions called by the host (thread entries, callbacks) go through guest_cpu_call;
@@ -37,6 +39,9 @@ uintptr_t guest_cpu_host_function(void *fn);
  * guest stack when the host was called by guest code, else on the stack set by
  * guest_cpu_thread_stack (or one allocated for the thread). */
 uint64_t guest_cpu_call(uintptr_t fn, unsigned count, const uint64_t *args);
+/* guest_cpu_call with floating-point arguments too: `floats` (at most 8) go to xmm0-7 as single-precision scalars, `count` integers
+ * (at most 8: six in registers, two on the stack) as for guest_cpu_call. The native (AArch64) build only. */
+uint64_t guest_cpu_call_floats(uintptr_t fn, unsigned count, const uint64_t *args, unsigned nfloats, const float *floats);
 /* The guest stack of this host thread for calls not nested in guest code: [top - size, top). */
 void guest_cpu_thread_stack(void *top, size_t size);
 /* Guest GS base (the TCB) of this host thread. */
@@ -58,14 +63,51 @@ enum { GUEST_CPU_IN_GUEST=1, GUEST_CPU_IN_HOST_CALL=2 };
 int guest_cpu_signal_regs(const void *ucontext, GuestRegs *regs);
 /* The host program counter at a signal. */
 uintptr_t guest_cpu_host_pc(const void *ucontext);
-/* Faults raised by the guest CPU itself (JIT bookkeeping): handled and to be resumed when 1. */
+/* Faults raised by the guest CPU itself (FEXCore: JIT bookkeeping; ahead-of-time code: an unaligned x86 `lock` operation): handled and to be resumed when 1. */
 int guest_cpu_handle_fault(int sig, siginfo_t *info, void *ucontext);
-/* Replaces the guest instruction at `address` (at least `size` >= 2 bytes) with a call of
- * `hook`, which sees and edits the registers and must set rip. RCX and R11 hold garbage when the
- * hook runs, so the original code must not read them there. Not available on x86-64 hosts
- * (bbport_guest_hooks.cpp uses int3 there): returns 0. */
+/* Hooks the guest instruction at `address` (at least `size` >= 2 bytes) with a call of `hook`, which
+ * sees and edits the registers and must set rip. FEXCore: the instruction is replaced by a trap (RCX and
+ * R11 hold garbage when the hook runs, so the original code must not read them there). Ahead-of-time
+ * code: only where the native library has a hook slot (guest_cpu_hook_slot, below); no code is ever
+ * rewritten, so anywhere else the hook is refused (logged) and 0 is returned.
+ * Not available on x86-64 hosts (the hooks use int3 there): returns 0. */
 typedef void (*GuestHook)(GuestRegs *regs);
 int guest_cpu_hook(uintptr_t address, size_t size, GuestHook hook);
+/* Native hook slots (ahead-of-time recompiled code only, cpu/aot/guest_cpu_aot.cpp; FEXCore and x86-64 hosts have none: 0; docs/RECOMP_ABI.md, "Hook slots"). The recompiled units
+ * have a slot test at the hook sites the .so was built with (tools/recomp/variants/hooks-*.txt): installing a hook there writes no
+ * code, the units call it. The callback sees the registers at the start of the instruction at `address` (rip = address) and returns
+ * what the unit does next: GUEST_HOOK_CONTINUE runs the instruction, GUEST_HOOK_JUMP continues at regs->rip (an address the site
+ * declares as a resume point is a jump inside the function, any other a jump through the dispatcher), GUEST_HOOK_RETURN: the callback
+ * made a `ret` itself (rip = the popped return address, rsp past it). rflags is a constant (the callback cannot change the flags, which
+ * survive the call), mxcsr is not written back, ymm is. The callback must leave rbx, rbp and r12-r15 alone when it returns.
+ * Returns 1 when the hook was set (no guest_cpu_invalidate needed), 0 (logged) when there is no slot at `address` or the function there
+ * has no native code (a patched function without a variant). guest_cpu_hook (above) is the same for a GuestHook. */
+typedef struct {
+    uint64_t gpr[GUEST_GPRS];
+    uint64_t rip;
+    uint64_t rflags;
+    uint32_t mxcsr, reserved;
+    uint8_t ymm[16][32];
+} GuestRegsEx;
+enum { GUEST_HOOK_CONTINUE = 0, GUEST_HOOK_JUMP = 1, GUEST_HOOK_RETURN = 2 };
+typedef uint32_t (*GuestHookEx)(void *context, GuestRegsEx *regs);
+int guest_cpu_hook_slot(uintptr_t address, size_t size, GuestHookEx hook, void *context);
+/* 1 when guest_cpu_hook_slot / guest_cpu_hook at `address` would use a slot now. */
+int guest_cpu_has_hook_slot(uintptr_t address);
+/* The hook set by guest_cpu_hook_slot / guest_cpu_hook at `address` is removed (the slot test then runs the instruction as usual). */
+void guest_cpu_hook_slot_clear(uintptr_t address);
+/* The host wrote guest code in [address, address + size) (a byte patch made while the game runs): the
+ * native functions that contain it are re-checked against the library's variants, and one with no
+ * variant for the new bytes has no native code (the game stops if it is entered). FEXCore drops its
+ * translations of the range. A no-op on x86-64 hosts. Every write of code that may already have run
+ * needs this call after it. */
+void guest_cpu_invalidate(uintptr_t address, size_t size);
+/* 1 when the guest code runs on the host CPU and the thread's own stack (x86-64 hosts): the main thread
+ * then enters the game by calling its entry point on a stack of its own; otherwise it enters through guest_cpu_call. */
+int guest_cpu_is_native(void);
+/* Where the guest CPU gets the game's last panic text from when it has to stop the game (the runtime's runtime_panic_text: one line, 0 when there is
+ * none). Optional; a no-op on x86-64 hosts. */
+void guest_cpu_set_panic_text(size_t (*get)(char *out, size_t size));
 /* The guest's time stamp counter (RDTSC) and its frequency in Hz. */
 uint64_t guest_cpu_tsc(void);
 uint64_t guest_cpu_tsc_frequency(void);

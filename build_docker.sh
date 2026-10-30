@@ -72,6 +72,12 @@
 #                 packages nixpkgs' Mesa with the radeon and intel Vulkan drivers, no Turnip.)
 #   BB_TURNIP_PATCHES  0: build that tree without the port's Turnip patches (default: applied
 #                 where they apply, Adreno 830 chip IDs added where missing)
+#   BB_RECOMP_SRC aarch64 only: the Bloodborne Android Rebuild Tool's sources (default: the checkout
+#                 Bloodborne-android-rebuild-tool next to this tree, when there is one). The appimage
+#                 step builds bb-recomp for the device from them into the AppImage (aot-tool/,
+#                 packaging/bb-recomp.nix: the launcher's Native CPU); the first time that downloads
+#                 the LLVM 23.1.3 release (1.1 GB; a few GB of it unpacked in the Nix volume). Mounted
+#                 read-only. BB_PACKAGE_RECOMP=0: an AppImage without it
 #
 # Written for macOS's stock bash 3.2 and any newer bash.
 set -eo pipefail
@@ -242,6 +248,20 @@ if [ -n "${BB_TURNIP_SRC:-}" ]; then
         [ "$MODE" = appimage ] || echo "    (used by the appimage step only)"
     fi
 fi
+# The Rebuild Tool's sources (aarch64 appimage step): bb-recomp for the device, in the AppImage.
+recomp_flags=(-e BB_PACKAGE_RECOMP="${BB_PACKAGE_RECOMP:-1}")
+if [ "$ARCH" = aarch64 ] && [ "${BB_PACKAGE_RECOMP:-1}" != 0 ]; then
+    RECOMP_SRC=${BB_RECOMP_SRC:-$(dirname -- "$SRC")/Bloodborne-android-rebuild-tool}
+    if [ -f "$RECOMP_SRC/bbrecomp.cmake" ]; then
+        RECOMP_SRC=$(cd -- "$RECOMP_SRC" && pwd)
+        recomp_flags+=(-v "$RECOMP_SRC":/recomp-src:ro -e BB_RECOMP_SRC=/recomp-src)
+        echo "==> bb-recomp for the device: the Rebuild Tool's sources in $RECOMP_SRC (in the AppImage as aot-tool/)"
+    elif [ -n "${BB_RECOMP_SRC:-}" ]; then
+        die "BB_RECOMP_SRC is not the Rebuild Tool's source tree (no bbrecomp.cmake): $BB_RECOMP_SRC"
+    else
+        echo "==> bb-recomp for the device: no Rebuild Tool checkout at $RECOMP_SRC (BB_RECOMP_SRC): the AppImage has none"
+    fi
+fi
 echo "==> Docker VM: ${ncpu} CPUs, ${mem_mib} MiB RAM; compiling with JOBS=${JOBS}"
 if [ "$NIX_VOLUME" != "$OWN_VOLUME" ]; then
     echo "==> Nix store: shared volume $NIX_VOLUME (BB_NIX_VOLUME)"
@@ -311,6 +331,10 @@ read -r -d '' INNER <<'INNER_SCRIPT' || true
 set -euo pipefail
 mode=$1; shift
 cd /src
+# What the build steps print also goes to out/build_docker.log (the host's build folder): it
+# outlives the container, so a failed build can be read afterwards (by an agent, too).
+mkdir -p out
+: > out/build_docker.log
 # Linux host with Docker Engine: root-owned files in what the build writes go back to the host
 # user, also when the build fails. Ownership only.
 if [ -n "${BB_OWNER:-}" ]; then
@@ -332,19 +356,23 @@ fi
 # Without the sandbox every build runs with HOME=/homeless-shelter on the container's real file
 # system, and Nix refuses to start a build while that directory exists ("home directory
 # /homeless-shelter exists; please remove it"). Anything that writes to that home creates it and
-# stops every build after it. Three guards:
+# stops every build after it. The guards:
 # - HOME and XDG_CACHE_HOME are /root for every command here, nix-shell commands included (Nix
 #   itself keeps caches in ~/.cache/nix: run with HOME=/homeless-shelter, it creates the directory);
 # - a post-build hook removes it after each build (max-jobs = 1: builds run one at a time, and Nix
 #   waits for the hook before it starts the next one);
 # - each step here removes it before it starts and after it ends, and names what was in it;
-# - a watcher removes it whenever it appears: without build users Nix cannot kill what a builder
-#   started, and such a leftover process (a test's D-Bus or dconf service, a font cache writer)
-#   can create it after the hook ran, between two builds;
+# - a watcher removes it whenever it appears between two builds: without build users Nix cannot
+#   kill what a builder started, and such a leftover process (a test's D-Bus or dconf service, a
+#   font cache writer) can create it after the hook ran. It leaves it alone while a build runs
+#   (its directory exists in /tmp/nix-builds, the build-dir below): builders use that home too
+#   (g-ir-scanner keeps its cache in ~/.cache: GTK failed when the watcher removed it under it),
+#   and Nix only looks for it when a build starts;
 # - a step that still stops on it runs again (up to 3 times): what Nix built is kept, so it goes on
 #   from the build it stopped at.
 export HOME=/root XDG_CACHE_HOME=/root/.cache
-mkdir -p /tmp/nixhooks "$XDG_CACHE_HOME"
+mkdir -p /tmp/nixhooks /tmp/nix-builds "$XDG_CACHE_HOME"
+chmod 700 /tmp/nix-builds
 printf '#!/bin/sh\nrm -rf /homeless-shelter\n' > /tmp/nixhooks/post-build
 chmod +x /tmp/nixhooks/post-build
 clear_homeless() { # $1: what left it (for the message)
@@ -359,6 +387,7 @@ clear_homeless "the image"
     seen=0
     while sleep 0.2; do
         [ -e /homeless-shelter ] || continue
+        [ -z "$(ls -A /tmp/nix-builds 2>/dev/null)" ] || continue  # a build is running: it may use it
         if [ "$seen" -lt 5 ]; then
             echo "==> /homeless-shelter appeared during a Nix step (contents: $(ls -A /homeless-shelter /homeless-shelter/.cache /homeless-shelter/.config 2>/dev/null | tr '\n' ' ')): removed" >&2
         fi
@@ -373,7 +402,7 @@ in_shell() {
         status=0
         clear_homeless "an earlier step"
         nix-shell shell.nix --run "export HOME=/root XDG_CACHE_HOME=/root/.cache; $2" 2>&1 |
-            tee /tmp/step.log || status=$?
+            tee -a out/build_docker.log | tee /tmp/step.log || status=$?
         clear_homeless "$1"
         if [ "$status" -ne 0 ] && [ "$attempt" -lt 3 ] &&
            grep -q 'home directory "/homeless-shelter" exists' /tmp/step.log; then
@@ -388,6 +417,7 @@ sandbox = false
 build-users-group =
 filter-syscalls = false
 max-jobs = 1
+build-dir = /tmp/nix-builds
 cores = ${BB_JOBS:-2}
 post-build-hook = /tmp/nixhooks/post-build"
 # Optional GitHub token (any classic token, no scopes): 5000 API requests/hour instead of 60.
@@ -538,6 +568,7 @@ docker run --rm ${tty_flags[@]+"${tty_flags[@]}"} \
     -e BB_LTO="$BB_LTO" -e BB_JOBS="$JOBS" -e GITHUB_TOKEN="${GITHUB_TOKEN:-}" \
     -e SDL_VIDEO_DRIVER=dummy -e SDL_AUDIO_DRIVER=dummy \
     ${turnip_flags[@]+"${turnip_flags[@]}"} \
+    "${recomp_flags[@]}" \
     "$IMAGE" bash -c "$INNER" inner "$MODE"
 
 case $MODE in

@@ -7,6 +7,8 @@
  * [LOW_MIN, USER_MIN): PS4 code packs pointers into 40-bit fields. */
 #define LOW_MIN UINT64_C(0x0800000000)
 static uintptr_t low_next=LOW_MIN;
+/* bbport: the guest CPU's own memory (runtime_low_map_top) comes from the top of the region down. */
+static uintptr_t low_top=USER_MIN;
 /* The guest's address range, reserved before anything else can land there (Windows: one
  * placeholder the game's mappings replace in; Linux needs nothing). */
 void runtime_memory_reserve(void) {
@@ -87,7 +89,7 @@ void *runtime_low_map(size_t size, int prot) {
     write_lock();
     void *p=MAP_FAILED;
     low_next=align_up(low_next,granule);
-    while (low_next+size<=USER_MIN) {
+    while (low_next+size<=low_top) {
         p=mmap((void *)low_next,size,prot,MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0);
         low_next=align_up(low_next+size+PAGE,granule); /* unmapped gap catches overruns */
         if (p!=MAP_FAILED) break;
@@ -96,6 +98,29 @@ void *runtime_low_map(size_t size, int prot) {
 #ifdef _WIN32
     fprintf(stderr,"Runtime: low memory %p+%#zx (prot %d)\n",p==MAP_FAILED ? NULL : p,size,prot);
 #endif
+    write_unlock();
+    return p==MAP_FAILED ? NULL : p;
+}
+/* bbport: low memory for the guest CPU itself (guest_cpu_init's allocator: cpu/aot's host function stubs and the guest stacks it
+ * makes, FEXCore's thread stacks), from the top of the region down, so that the game's image keeps LOW_MIN: the port's fixes,
+ * hooks and checks expect it at 0x800000000. The ahead-of-time CPU maps 1 MiB of stubs in guest_cpu_init, before the image:
+ * from the bottom they had moved the image to 0x800104000, and the engine fixes found "other code there". */
+void *runtime_low_map_top(size_t size, int prot) {
+#ifdef _WIN32
+    const uint64_t granule=UINT64_C(65536);
+#else
+    const uint64_t granule=PAGE;
+#endif
+    size=align_up(size,PAGE);
+    write_lock();
+    void *p=MAP_FAILED;
+    while (low_top>=size+2*PAGE && (low_top-size-PAGE)/granule*granule>=low_next) {
+        const uintptr_t at=(low_top-size-PAGE)/granule*granule; /* an unmapped page above it catches overruns */
+        p=mmap((void *)at,size,prot,MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0);
+        low_top=at;
+        if (p!=MAP_FAILED) break;
+    }
+    if (p!=MAP_FAILED) low_record((uintptr_t)p,(uintptr_t)p+size,prot);
     write_unlock();
     return p==MAP_FAILED ? NULL : p;
 }

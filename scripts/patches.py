@@ -203,6 +203,8 @@ def effect_patches(settings, env=os.environ):
     return names
 SCENE_WIDTH=0x02196A6B-EBOOT_BASE
 SCENE_HEIGHT=0x02196A7A-EBOOT_BASE
+# The template's scene size (RESOLUTION_TEMPLATE). The native CPU keeps it in the code: see main, --native-cpu.
+TEMPLATE_SCENE=(1280,720)
 UI_WIDTH=0x02358554-EBOOT_BASE
 UI_HEIGHT=0x0235855D-EBOOT_BASE
 
@@ -485,6 +487,8 @@ def main():
     p.add_argument('--print-scaled',action='store_true',
                    help='print "RENDER OUTPUT" (WxH) when bbport.ini selects an output other than 1080p')
     p.add_argument('--align',type=int,default=2,help='--print-scaled: the scene size\'s multiple (8: live presets)')
+    p.add_argument('--native-cpu',action='store_true',
+                   help='the game runs on the native CPU (run.sh, BB_AOT): the scene size goes through hook slots')
     a=p.parse_args()
     if a.print_scaled:
         sizes=scaled_sizes(read_settings(a.settings),a.align)
@@ -518,7 +522,15 @@ def main():
     # (UiComposition::NativeViewport), so it is rasterized at the output resolution.
     ui=OUTPUT_SIZE
     if size:
-        writes+=resolution_writes(a.xml,size,a.app_version,segments,ui)
+        resolution=resolution_writes(a.xml,size,a.app_version,segments,ui)
+        if a.native_cpu:
+            # The native CPU runs the patched function from the library's variant of the template's exact bytes
+            # (bb-recomp's catalog, part:res-scene): another size there would leave the function without native code and
+            # stop the game. So the scene's two `mov eax, imm32` keep 1280x720, and bb-probe loads the size from
+            # BB_RENDER_RES into eax through the library's hook slots there (src/probe.c, scene_size_slots).
+            template=dict(resolution_writes(a.xml,TEMPLATE_SCENE,a.app_version,segments,ui))
+            resolution=[(o,template[o] if o in (SCENE_WIDTH,SCENE_HEIGHT) else d) for o,d in resolution]
+        writes+=resolution
     large=a.large_heaps=='1'
     # BB_PATCHES may name the heap patch already: its writes go in once.
     if graphics_heaps(size,large) and GRAPHICS_HEAP_PATCH not in names:
@@ -532,7 +544,8 @@ def main():
             writes+=compile_patches(a.xml,[GRAPHICS_HEAP_PATCH],a.app_version,segments)
             names.append(GRAPHICS_HEAP_PATCH)
     if size:
-        print(f'Patches: scene {size[0]}x{size[1]}; UI {ui[0]}x{ui[1]}')
+        print(f'Patches: scene {size[0]}x{size[1]}{" (native CPU: through hook slots)" if a.native_cpu else ""}; '
+              f'UI {ui[0]}x{ui[1]}')
     if a.patches_dir:
         # After the built-in ones: an external patch of the same bytes wins.
         writes+=compile_external(external_selection(external_patches(a.patches_dir,a.app_version,a.xml),

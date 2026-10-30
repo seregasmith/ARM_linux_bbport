@@ -16,16 +16,25 @@
 # it the tool reads four game files, for their headers only: eboot.bin, sce_module/libc.prx,
 # sce_module/libSceFios2.prx and sce_sys/param.sfo. A folder with just those four is enough.
 #
-# Nothing in the port loads the library yet (that is the guest CPU work in cpu/). libbbaot.so is
-# the game's own code, translated: keep it to yourself, never commit, ship or upload it.
+# The port runs it with the ahead-of-time guest CPU (cpu/aot, out/aot-cpu/libbbcpu.so):
+#   BB_AOT=<path>/libbbaot.so bash run.sh     (or put it at <data>/aot/<sha256 of boot-linked.bin>/ and use BB_AOT=auto)
+# libbbaot.so is the game's own code, translated: keep it to yourself, never commit, ship or upload it.
 #
 # Hosts: macOS on Apple Silicon (Docker Desktop, OrbStack or colima) or Linux on arm64 or x86-64
 # (Docker Engine). The container runs Docker's own architecture, never emulated. On an x86-64
 # host bb-recomp is built for x86-64 (it then needs a CPU with AVX2) and still compiles for AArch64.
 #
 # Usage:  ./build_aot_docker.sh --game DIR [--boot FILE] [--out DIR] [--host PROFILE] [aot]
+#         ./build_aot_docker.sh [--out DIR] device-tool
 #         ./build_aot_docker.sh tool | shell | clean
 #   aot     (default) build bb-recomp when needed, compile the game image, link libbbaot.so
+#   device-tool  no game files: bb-recomp for the handheld itself (aarch64 Linux, fully static, the
+#           tool's own arm64/build.sh aarch64) with what it needs to write a glibc libbbaot.so there
+#           (share/bb-recomp: the x87 helpers, a libbbcpu.so stub, glibc's libm, compiler-rt, the
+#           variant catalog) and the tool's licenses, into --out (default: aot-tool next to this
+#           tree). Copy that folder to the handheld's data folder (~/.local/share/bbport/aot-tool);
+#           the launcher's Native CPU builds the library there from the game on the device
+#           (scripts/aot_build.py). On an x86-64 host it also downloads the AArch64 LLVM (1.1 GB)
 #   tool    only build bb-recomp. The first run downloads LLVM (1.1 GB, 12 GB unpacked) and an
 #           arm64 sysroot, and builds FEXCore and the tool (10 to 30 minutes)
 #   shell   interactive shell in the build container (the Docker volume is at /aot)
@@ -48,6 +57,9 @@
 #   BB_AOT_JOBS    bb-recomp's worker threads (default: its own choice, sized to the free RAM;
 #                  about 0.5 GB + 0.8 GB per thread). The result does not depend on it
 #   BB_AOT_OPT     0 | 1 (default) | 2: bb-recomp's optimisation level
+#   BB_AOT_VARIANTS 1 (default) | 0: compile the tool's variant catalog (variants/*.txt: the port's patches as precompiled
+#                  variants, its hook sites as native hook slots). Without it every function the port patches at start-up
+#                  (patches.bin: the heap and resolution patches, the effect switches ...) has no native code and stops the game
 #
 # Results in --out: libbbaot.so (~125 MB); libbbaot.txt (what it was made from and with, what
 # the runtime must provide); bb-recomp.log and compile.txt (the compiler's log and summary).
@@ -67,7 +79,7 @@ OUT=""
 HOST_PROFILE=armv8.4
 
 die() { echo "ERROR: $*" >&2; exit 1; }
-usage() { echo "Usage: $0 --game DIR [--boot FILE] [--out DIR] [--host armv8.2|armv8.4|armv9] [aot|tool|shell|clean]" >&2; exit 2; }
+usage() { echo "Usage: $0 --game DIR [--boot FILE] [--out DIR] [--host armv8.2|armv8.4|armv9] [aot|device-tool|tool|shell|clean]" >&2; exit 2; }
 norm_arch() {
     case $1 in
         aarch64|arm64|armv8*) echo aarch64 ;;
@@ -87,12 +99,14 @@ while [ $# -gt 0 ]; do
         --host) [ $# -ge 2 ] || usage; HOST_PROFILE=$2; shift 2 ;;
         --host=*) HOST_PROFILE=${1#--host=}; shift ;;
         -h|--help) awk 'NR > 1 && /^set -eo/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;;
-        aot|tool|shell|clean) MODE=$1; shift ;;
+        aot|device-tool|tool|shell|clean) MODE=$1; shift ;;
         *) echo "ERROR: unknown argument '$1'" >&2; usage ;;
     esac
 done
 case $HOST_PROFILE in armv8.2|armv8.4|armv9) ;; *) die "--host must be armv8.2, armv8.4 or armv9" ;; esac
 AOT_OPT=${BB_AOT_OPT:-1}
+AOT_VARIANTS=${BB_AOT_VARIANTS:-1}
+case $AOT_VARIANTS in 0|1) ;; *) die "BB_AOT_VARIANTS must be 0 or 1" ;; esac
 case $AOT_OPT in 0|1|2) ;; *) die "BB_AOT_OPT must be 0, 1 or 2" ;; esac
 AOT_JOBS=${BB_AOT_JOBS:-}
 case $AOT_JOBS in ''|[1-9]|[1-9][0-9]) ;; *) die "BB_AOT_JOBS must be a number from 1 to 99" ;; esac
@@ -174,6 +188,12 @@ if [ "$MODE" = aot ]; then
     case "$OUT/" in
         "$SRC/"*|"$TOOL/"*) echo "WARNING: $OUT is inside a repository. Never commit libbbaot.so (it is the game's code)." >&2 ;;
     esac
+    mounts+=(-v "$OUT":/out)
+fi
+if [ "$MODE" = device-tool ]; then
+    OUT=${OUT:-$(dirname -- "$SRC")/aot-tool}
+    mkdir -p "$OUT" || die "cannot create $OUT"
+    OUT=$(cd -- "$OUT" && pwd)
     mounts+=(-v "$OUT":/out)
 fi
 
@@ -283,6 +303,91 @@ if [ ! -f "$A/fex-src/.complete" ]; then
     touch "$A/fex-src/.complete"
 fi
 
+# device-tool: bb-recomp for the handheld (static aarch64 glibc, the tool's arm64/build.sh aarch64, run on a copy of its
+# sources in the volume, with this volume's LLVM, sysroot and FEX copy where that script looks for them) and its bundle.
+if [ "$mode" = device-tool ]; then
+    ARM=$A/llvm/LLVM-$LLVM_VER-Linux-ARM64
+    if [ ! -f "$ARM/lib/cmake/llvm/LLVMConfig.cmake" ]; then   # x86-64 hosts: the AArch64 libraries the static tool links
+        f=$A/llvm/LLVM-$LLVM_VER-Linux-ARM64.tar.zst
+        if [ ! -f "$f.complete" ]; then
+            say "Downloading LLVM $LLVM_VER for ARM64 (about 1.1 GB, once): the libraries of the handheld's bb-recomp"
+            curl -fL --retry 3 -C - -o "$f" \
+                "https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VER/LLVM-$LLVM_VER-Linux-ARM64.tar.zst" ||
+                fail "LLVM download failed (run again to resume)"
+            touch "$f.complete"
+        fi
+        rm -rf "$A/llvm/xa"; mkdir -p "$A/llvm/xa"
+        zstd -d --long=31 -c "$f" | tar -x -C "$A/llvm/xa"
+        top=$(ls "$A/llvm/xa")
+        mv "$A/llvm/xa/$top" "$ARM"; rmdir "$A/llvm/xa"; rm -f "$f" "$f.complete"
+    fi
+    T=$A/tool-src
+    say "Copying the Rebuild Tool's sources into the volume (without .git, out and .local-deps)"
+    mkdir -p "$T"
+    tar -C "$TOOL" --exclude=./.git --exclude=./out --exclude=./.local-deps -cf - . | tar -C "$T" -xf -
+    # Where arm64/build.sh looks: the host compiler as "the x86-64 LLVM" (on an arm64 host the AArch64 LLVM itself: it only
+    # runs clang, lld and llvm-ar from it), zlib and zstd sources, the AArch64 LLVM and the jammy sysroot in its .local-deps.
+    X=$A/x86deps
+    mkdir -p "$X/llvm/x" "$X/deps/dl" "$T/.local-deps/llvm-arm64/x"
+    ln -sfn "$L" "$X/llvm/x/LLVM-$LLVM_VER-Linux-X64"
+    ln -sfn "$ARM" "$T/.local-deps/llvm-arm64/x/LLVM-$LLVM_VER-Linux-ARM64"
+    ln -sfn "$SYSROOT" "$T/.local-deps/sysroot-jammy-arm64"
+    [ -f "$X/deps/dl/zlib-1.3.1.tar.xz" ] || curl -fL --retry 3 -o "$X/deps/dl/zlib-1.3.1.tar.xz" \
+        https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.xz || fail "zlib download failed"
+    [ -f "$X/deps/dl/zstd-1.5.7.tar.gz" ] || curl -fL --retry 3 -o "$X/deps/dl/zstd-1.5.7.tar.gz" \
+        https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz || fail "zstd download failed"
+    say "Building bb-recomp for aarch64 Linux, static (arm64/build.sh aarch64, $JOBS jobs; the first build takes 10 to 30 minutes)"
+    if ! (cd "$T" && BB_X86_DEPS="$X" BB_FEX_TREE="$A/fex-src" BB_JOBS="$JOBS" bash arm64/build.sh aarch64) > "$A/device-tool-build.log" 2>&1; then
+        grep -v '^\[[0-9]*/[0-9]*\] ' "$A/device-tool-build.log" | tail -40 >&2
+        fail "building the handheld's bb-recomp failed (log: $A/device-tool-build.log in the volume; 'build_aot_docker.sh shell' to look)"
+    fi
+    exe=$T/out/arm64/bb-recomp
+    [ -x "$exe" ] || fail "arm64/build.sh made no $exe"
+    version=$(sed -n 's/^#define BBR_TOOL_VERSION "\(.*\)"/\1/p' "$TOOL/src/version.h" | head -n 1)
+    P=$A/device-tool
+    rm -rf "$P"; mkdir -p "$P/bin" "$P/share/bb-recomp/variants" "$P/licenses"
+    llvm-strip -o "$P/bin/bb-recomp" "$exe"
+    # The bundle the tool's in-process link reads (src/bundle.cpp): the Android names, glibc contents.
+    S=$P/share/bb-recomp
+    CL=(clang --target=aarch64-linux-gnu --sysroot="$SYSROOT" --gcc-install-dir="$GCC_DIR")
+    "${CL[@]}" -O2 -fPIC -fvisibility=hidden -fno-stack-protector -ffp-contract=off \
+        -c "$TOOL/helpers/bbr_x87_all.c" -o "$S/helpers-aarch64.o" || fail "compiling the x87 helpers failed"
+    "${CL[@]}" -fuse-ld=lld -shared -nostdlib -Wl,-soname,libbbcpu.so -x c /dev/null -o "$S/libbbcpu-stub.so" ||
+        fail "making the libbbcpu.so stub failed"
+    libm=$(find "$SYSROOT" -name libm.so.6 | head -n 1)
+    [ -n "$libm" ] || fail "the sysroot has no libm.so.6"
+    cp -L "$libm" "$S/libm.so"   # SONAME libm.so.6: the library's DT_NEEDED, with glibc's symbol versions
+    builtins=$(find "$ARM/lib/clang" -path '*aarch64*' -name 'libclang_rt.builtins*.a' | head -n 1)
+    [ -n "$builtins" ] || fail "no AArch64 compiler-rt builtins in $ARM/lib/clang"
+    cp "$builtins" "$S/libclang_rt.builtins-aarch64-android.a"
+    cp "$TOOL"/variants/*.txt "$S/variants/"
+    cp "$TOOL/LICENSE" "$TOOL/NOTICES" "$TOOL/ADDITIONAL_TERMS.md" "$P/licenses/"
+    cp "$TOOL/helpers/NOTICE" "$P/licenses/helpers-NOTICE"
+    {
+        echo "bb-recomp $version for aarch64 Linux (a fully static executable: any distribution, glibc not needed)."
+        echo
+        echo "The Bloodborne Android Rebuild Tool by ducvd89, https://github.com/ducvd89/Bloodborne-android-rebuild-tool"
+        echo "(GPL-3.0-or-later with the additional terms in licenses/ADDITIONAL_TERMS.md), built unmodified from its"
+        echo "sources by bbport's build_aot_docker.sh device-tool with the tool's own arm64/build.sh aarch64. The"
+        echo "share/bb-recomp files are bbport's: the tool's link inputs made for glibc (x87 helpers, a libbbcpu.so stub,"
+        echo "Ubuntu 22.04's libm.so.6, LLVM's compiler-rt builtins) and the tool's variant catalog."
+        echo
+        echo "Copy this folder to the handheld's data folder as aot-tool, e.g."
+        echo "    scp -r aot-tool <user>@<handheld>:.local/share/bbport/"
+        echo "then in the launcher: Game -> Native CPU -> Build. It writes the game's code compiled for the device into"
+        echo "~/.local/share/bbport/aot/: that file is the game's own code: never share it."
+        echo
+        echo "made:      $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        echo "LLVM:      $LLVM_VER"
+        echo "catalog:   $(cat "$S"/variants/*.txt | sha256sum | cut -c1-16)"
+    } > "$P/README.txt"
+    echo "$version" > "$P/VERSION"
+    rm -rf "$OUT/bin" "$OUT/share" "$OUT/licenses"
+    cp -a "$P/." "$OUT/"
+    say "The handheld's bb-recomp $version: $(du -h "$OUT/bin/bb-recomp" | cut -f1), in the output folder"
+    exit 0
+fi
+
 # bb-recomp, unmodified (FEXCore's front end + LLVM). Incremental after the first build.
 say "Building bb-recomp ($JOBS jobs; the first build takes 10 to 30 minutes)"
 if [ ! -f "$B/build.ninja" ]; then
@@ -325,14 +430,21 @@ CL=(clang --target=aarch64-linux-gnu --sysroot="$SYSROOT" --gcc-install-dir="$GC
     -c "$TOOL/helpers/bbr_x87_all.c" -o "$A/bundle/helpers-aarch64.o" || fail "compiling the x87 helpers failed"
 
 # Objects of an earlier run for the same image, options and tool are kept: then only the link runs.
-key="$boot_sha -O$AOT_OPT --host $HOST_PROFILE ${tool_version:-bb-recomp}"
+variants=()
+variants_note="none (BB_AOT_VARIANTS=0)"
+if [ "$AOT_VARIANTS" = 1 ]; then
+    ls "$TOOL"/variants/*.txt >/dev/null 2>&1 || fail "the tool has no variant catalog ($TOOL/variants/*.txt)"
+    variants=(--variants "$TOOL/variants")
+    variants_note="the tool's variants/ ($(cat "$TOOL"/variants/*.txt | sha256sum | cut -c1-16))"
+fi
+key="$boot_sha -O$AOT_OPT --host $HOST_PROFILE ${tool_version:-bb-recomp} variants: $variants_note"
 if [ -f "$W/obj/.key" ] && [ "$(cat "$W/obj/.key")" = "$key" ] && [ -f "$W/compile.txt" ]; then
     say "The objects of this image and these options are compiled already: linking only"
 else
     rm -rf "$W/obj" "$W/compile.txt" "$W/bb-recomp.log"; mkdir -p "$W/obj"
     say "Compiling the game's code: bb-recomp -O$AOT_OPT --host $HOST_PROFILE, 64 shards${AOT_JOBS:+, $AOT_JOBS threads} (minutes)"
     args=(--boot "$boot" --game-dir "$GAME" --obj "$W/obj/libbbaot.o" --bundle-dir "$A/bundle"
-          --shards 64 "-O$AOT_OPT" --host "$HOST_PROFILE" --stats "$W/compile.txt" --no-nice)
+          --shards 64 "-O$AOT_OPT" --host "$HOST_PROFILE" --stats "$W/compile.txt" --no-nice ${variants[@]+"${variants[@]}"})
     if [ -n "$AOT_JOBS" ]; then args+=(--jobs "$AOT_JOBS"); fi
     if ! "$B/bb-recomp" "${args[@]}" 2>&1 | tee "$W/bb-recomp.log"; then
         cp "$W/bb-recomp.log" "$OUT/bb-recomp.log" 2>/dev/null || true
@@ -419,7 +531,7 @@ glibc = sorted((v for v in versions if v.startswith('GLIBC_')), key=vkey)
 flags = value('bbr_abi_flags') or 0
 names = ['resume entries', 'dirty check', 'variants', 'hook slots', 'granular entries']
 print('machine:          ' + ('AArch64' if machine == 183 else 'e_machine %d (not AArch64)' % machine))
-print('ABI version:      %s (the Android runtime of bb-recomp 1.2 accepts 2)' % value('bbr_abi_version'))
+print('ABI version:      %s (cpu/aot accepts 2)' % value('bbr_abi_version'))
 print('units:            %s in %s functions' % (value('bbr_unit_count'), value('bbr_func_count')))
 img = value('bbr_image_hash')
 print('image hash:       %s (FNV-1a 64 of the game image)' % ('%#018x' % img if img is not None else None))
@@ -447,6 +559,7 @@ python3 "$A/elfcheck.py" "$W/libbbaot.so" > "$W/check.txt" || { cat "$W/check.tx
     echo "made:             $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "game image:       sha256 $boot_sha, $boot_from"
     echo "compiler:         ${tool_version:-bb-recomp}, -O$AOT_OPT --host $HOST_PROFILE --shards 64 --obj"
+    echo "variant catalog:  $variants_note"
     echo "                  (Bloodborne Android Rebuild Tool by ducvd89, unmodified; FEX-2609.1 front end)"
     echo "LLVM:             $LLVM_VER ($(clang --version | head -n 1))"
     echo "linked against:   Ubuntu 22.04 arm64 sysroot (glibc 2.35), ld.lld, -Bsymbolic"
@@ -470,11 +583,12 @@ docker run --rm ${tty_flags[@]+"${tty_flags[@]}"} --platform "$PLATFORM" \
     "${mounts[@]}" \
     -e A=/aot -e TOOL=/src/tool -e FEX=/src/fex -e FORK=/fork -e GAME=/in/game -e OUT=/out \
     -e BOOT_FILE="$BOOT_FILE" -e LLVM_VER="$LLVM_VER" -e LARCH="$LARCH" -e MARCH="$MARCH" \
-    -e JOBS="$JOBS" -e AOT_JOBS="$AOT_JOBS" -e AOT_OPT="$AOT_OPT" -e HOST_PROFILE="$HOST_PROFILE" \
+    -e JOBS="$JOBS" -e AOT_JOBS="$AOT_JOBS" -e AOT_OPT="$AOT_OPT" -e AOT_VARIANTS="$AOT_VARIANTS" -e HOST_PROFILE="$HOST_PROFILE" \
     -e OWNER="$OWNER" \
     "$IMAGE" bash -c "$INNER" inner "$MODE"
 
 case $MODE in
     aot) echo "==> Done: $OUT/libbbaot.so (report: $OUT/libbbaot.txt)" ;;
     tool) echo "==> Done: bb-recomp is built in the Docker volume $VOLUME." ;;
+    device-tool) echo "==> Done: $OUT (copy it to the handheld as ~/.local/share/bbport/aot-tool; README.txt)" ;;
 esac

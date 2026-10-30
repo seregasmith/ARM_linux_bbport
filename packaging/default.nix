@@ -8,18 +8,48 @@
 }:
 let
   lib = pkgs.lib;
-  # aarch64 hosts: the game's x86-64 code runs in FEXCore (out/fex/libbbcpu.so, build.sh).
+  # aarch64 hosts: the game's x86-64 code runs in FEXCore (out/fex/libbbcpu.so, build.sh), or with BB_AOT as ahead-of-time
+  # recompiled native code (out/aot-cpu/libbbcpu.so: bin/aot-cpu, which run.sh puts first on the library path).
   arm = pkgs.stdenv.hostPlatform.isAarch64;
   root = ./..;
   # FSR 4.1.1 models are extracted from AMD's DLLs: never in a public package. BB_PACKAGE_FSR411=1
   # (appimage.sh runs nix with --impure) bundles the local fsr4_411 for one's own devices.
   fsr411 = builtins.getEnv "BB_PACKAGE_FSR411" == "1";
+  # bb-recomp for the device (packaging/bb-recomp.nix, aarch64): the launcher's Native CPU compiles the
+  # game's code on the device with it (aot-tool/ in the package, scripts/aot_build.py). Built from the
+  # Rebuild Tool's sources: BB_RECOMP_SRC (build_docker.sh mounts it), else a checkout next to this
+  # tree; without either the package has no aot-tool (the launcher then says how to get one).
+  # BB_PACKAGE_RECOMP=0: never.
+  # (A path, so that ".." is resolved: the filter below compares paths as strings.)
+  recompDir = /. + (let e = builtins.getEnv "BB_RECOMP_SRC"; in
+    if e != "" then e else toString root + "/../Bloodborne-android-rebuild-tool");
+  withRecomp = arm && builtins.getEnv "BB_PACKAGE_RECOMP" != "0"
+    && builtins.pathExists (recompDir + "/bbrecomp.cmake");
+  aotTool = import ./bb-recomp.nix {
+    inherit pkgs;
+    recompSrc = builtins.path {
+      name = "bb-recomp-src";
+      path = recompDir;
+      # Its builds, downloads and git data stay out.
+      filter = path: type:
+        let rel = lib.removePrefix (toString recompDir + "/") (toString path);
+        in !(builtins.elem rel [ ".git" "out" ".local-deps" ".idea" ]) && baseNameOf path != "__pycache__";
+    };
+    # FEX 2609.1 with its submodules, without its test binaries.
+    fexSrc = builtins.path {
+      name = "fex-src";
+      path = root + "/third_party/FEX";
+      filter = path: type:
+        let name = baseNameOf path;
+        in name != ".git" && !(lib.hasPrefix "fex-" name && lib.hasSuffix "-bins" name);
+    };
+  };
   assetDirs = [ "scripts" "patches" "fsr4_shaders" "launcher" "tools/fsr4cap" ]
     ++ lib.optional fsr411 "fsr4_411";
   # Only what the package needs (the tree also holds builds, profiles and captures).
   wanted = [
     "run.sh" "VERSION" "LICENSE" "NOTICE" "shader_recipes.bin" "image_shapes.txt" "out" "out/bb-probe" "out/bb-gpu-capabilities" "out/gpu" "out/gpu/libbbgpu.so" "tools"
-  ] ++ lib.optionals arm [ "out/fex" "out/fex/libbbcpu.so" ] ++ assetDirs;
+  ] ++ lib.optionals arm [ "out/fex" "out/fex/libbbcpu.so" "out/aot-cpu" "out/aot-cpu/libbbcpu.so" ] ++ assetDirs;
   # DLSS (a build with DLSS_SDK_ROOT): the bridge, NVIDIA's runtime library and its license, as
   # NVIDIA's RTX SDK license allows in an application. Without them the launcher lets the player
   # choose NVIDIA's library (the bridge is still needed).
@@ -176,13 +206,18 @@ let
   gtk4 = (pkgs.gtk4.override { cupsSupport = false; trackerSupport = false; }).overrideAttrs (old: {
     buildInputs = lib.filter (p: !(lib.hasPrefix "gst-" (p.pname or ""))) old.buildInputs;
     mesonFlags = old.mesonFlags ++ [ "-Dmedia-gstreamer=disabled" ];
+    # g-ir-scanner's cache lives in ~/.cache: /homeless-shelter in build_docker.sh's unsandboxed
+    # builds, which its watcher keeps removing. Without the cache the scan takes a few seconds more.
+    env = (old.env or { }) // { GI_SCANNER_DISABLE_CACHE = "1"; };
     # GTK's demo apps' menu entries and AppStream data: AppImage managers showed the port as
     # "GTK Demo" (org.gtk.Demo4.appdata.xml in the closure).
     postInstall = (old.postInstall or "") + ''
       rm -f $out/share/applications/org.gtk.*.desktop $out/share/metainfo/org.gtk.*.xml
     '';
   });
-  libadwaita = pkgs.libadwaita.override { inherit gtk4; };
+  libadwaita = (pkgs.libadwaita.override { inherit gtk4; }).overrideAttrs (old: {
+    env = (old.env or { }) // { GI_SCANNER_DISABLE_CACHE = "1"; };  # as for gtk4 above
+  });
   # Fonts: bundled DejaVu and Adwaita plus the host's usual font directories, but not the host's
   # /etc/fonts: on NixOS it names fonts in the host's /nix/store, which the AppImage hides behind
   # its own store in some environments (Steam's FHS sandbox), and the launcher showed boxes.
@@ -223,7 +258,7 @@ pkgs.stdenv.mkDerivation {
   dontConfigure = true;
   # The binaries live under share/ (next to the scripts run.sh expects): strip them too, which
   # also drops the compiler and header paths their debug info would keep in the closure.
-  stripDebugList = [ "share/bbport/bin/gpu" ] ++ lib.optional arm "share/bbport/bin/cpu";
+  stripDebugList = [ "share/bbport/bin/gpu" ] ++ lib.optionals arm [ "share/bbport/bin/cpu" "share/bbport/bin/aot-cpu" ];
   # patchelf (RPATH shrinking) corrupts the non-PIE game binary's symbol versions; it finds
   # its library through $ORIGIN/gpu and its other libraries through the build's RUNPATH.
   dontPatchELF = true;
@@ -305,6 +340,8 @@ pkgs.stdenv.mkDerivation {
     install -m755 out/bb-gpu-capabilities $d/bin/bb-gpu-capabilities
     install -Dm755 out/gpu/libbbgpu.so $d/bin/gpu/libbbgpu.so
     ${lib.optionalString arm "install -Dm755 out/fex/libbbcpu.so $d/bin/cpu/libbbcpu.so"}
+    ${lib.optionalString arm "install -Dm755 out/aot-cpu/libbbcpu.so $d/bin/aot-cpu/libbbcpu.so"}
+    ${lib.optionalString withRecomp "ln -s ${aotTool} $d/aot-tool"}
     ${lib.optionalString (mangohudSrc != "") ''
       if [ -f ${mangohud.src}/MangoHud/MangoHud.conf ]; then
         install -Dm644 ${mangohud.src}/MangoHud/MangoHud.conf $d/mangohud/MangoHud.conf

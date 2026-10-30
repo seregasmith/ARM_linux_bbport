@@ -544,4 +544,42 @@ uint64_t guest_cpu_tsc_frequency(void) {
     asm volatile("mrs %0, cntfrq_el0" : "=r"(frequency));
     return frequency << tsc_shift;
 }
+
+// The calls the ahead-of-time CPU (cpu/aot) brought into guest_cpu.h. FEXCore translates the code the host writes once it is told
+// (guest_cpu_invalidate), so hooks stay traps (guest_cpu_hook) and there are no native hook slots.
+uint64_t guest_cpu_call_floats(uintptr_t fn, unsigned count, const uint64_t* args, unsigned nfloats, const float* floats) {
+    if (count > 8 || nfloats > 8) {
+        Fatal("guest_cpu_call_floats: too many arguments", count, nfloats);
+    }
+    // xmm0-7 are caller-saved in the System V ABI: the guest code that called the host does not expect them kept.
+    auto& s = Current()->thread->CurrentFrame->State;
+    for (unsigned i = 0; i < nfloats; ++i) {
+        uint32_t bits;
+        std::memcpy(&bits, &floats[i], sizeof(bits));
+        uint64_t* x = Xmm(s, i);
+        x[0] = bits;
+        x[1] = 0;
+    }
+    return guest_cpu_call(fn, count, args);
+}
+
+int guest_cpu_hook_slot(uintptr_t, size_t, GuestHookEx, void*) {
+    return 0;
+}
+
+int guest_cpu_has_hook_slot(uintptr_t) {
+    return 0;
+}
+
+void guest_cpu_hook_slot_clear(uintptr_t) {}
+
+void guest_cpu_invalidate(uintptr_t address, size_t size) {
+    InvalidateCode(address, size);
+}
+
+int guest_cpu_is_native(void) {
+    return 0;
+}
+
+void guest_cpu_set_panic_text(size_t (*)(char*, size_t)) {}
 } // extern "C"

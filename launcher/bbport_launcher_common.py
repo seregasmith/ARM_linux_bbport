@@ -190,6 +190,10 @@ DEFAULTS = {
     # The save point (save scumming, scripts/save_snapshots.py): off unless the player turns it on
     # in Mods and patches; then a button next to Play and a section in the in-game menu.
     "save_snapshots": False,
+    # The native CPU (aarch64, bbport_launcher_aot.py): run the game's code compiled ahead of time on this device
+    # (BB_AOT=auto for run.sh) when there is a library for the game; the folder of bb-recomp for this device ("": looked for).
+    "native_cpu": False,
+    "aot_tool_dir": "",
     "language": "1",
     "fullscreen": False,
     "hdr": False,
@@ -210,6 +214,8 @@ DEFAULTS = {
     "save_log": False,
     "crash_diag": False,
     "gpu_profile": False,
+    # Developer: a performance profile of every game start (bbport_launcher_profile.py, scripts/bbport_profile.py).
+    "perf_profile": False,
     "vk_validation": False,
     "extra_env": "",
     # The player's trophy key (32 hex digits, as shadPS4 asks for): the game decrypts the trophy
@@ -436,6 +442,13 @@ def game_environment(s):
         env["BB_SAVE_SNAPSHOTS"] = "1"
     else:
         env.pop("BB_SAVE_SNAPSHOTS", None)
+    # The native CPU: run.sh takes <data>/aot/<sha256 of the game image>/libbbaot.so when there is one, else FEX runs the
+    # game. A BB_AOT of the shell (a library's path, or 0) wins. A library of an older recipe (aot_build.RECIPE) is not
+    # used until it is rebuilt: FEX runs the game.
+    if s.get("native_cpu"):
+        import aot_build  # scripts/ (on sys.path, above)
+        if aot_build.library_usable(DATA_DIR):
+            env.setdefault("BB_AOT", "auto")
     env["BB_PATCHES_DIR"] = str(patches_dir(s))
     env["BB_PATCHES_CONFIG"] = str(DATA_DIR / "patches.json")
     env["BB_LANGUAGE"] = s["language"]

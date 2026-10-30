@@ -117,6 +117,9 @@ void runtime_thread_keys_cleanup(void);
 /* Guest-visible errno values are FreeBSD's. */
 int32_t runtime_guest_errno(int host_errno);
 void *runtime_low_map(size_t size, int prot);
+/* bbport: the same from the top of the low region down: the guest CPU's own memory (its stubs and stacks), so that the image
+ * keeps the bottom (0x800000000). */
+void *runtime_low_map_top(size_t size, int prot);
 /* bbport: the loader changed the protection of part of the low region (mmap PROT_ bits). */
 void runtime_low_protect(uintptr_t start, size_t size, int prot);
 /* bbport: the low region's mapping holding address: 1 with its PS4 protection bits and end. */

@@ -6,6 +6,8 @@
 # its /nix/store with user namespaces, available on SteamOS and most desktops).
 # Running it opens the launcher; `--play` starts the game with the launcher's saved settings.
 # Data (generated files, saves, bbport.ini): ~/.local/share/bbport (BB_DATA_DIR).
+# aarch64: bb-recomp for the launcher's Native CPU (packaging/bb-recomp.nix) when the Rebuild Tool's
+# sources are next to this tree or in BB_RECOMP_SRC=<checkout> (BB_PACKAGE_RECOMP=0: without it).
 # BB_MANGOHUD_SRC=<MangoHud tree>: bundle that MangoHud (and its MangoHud/MangoHud.conf) instead
 # of nixpkgs' release (packaging/default.nix).
 set -euo pipefail
@@ -14,8 +16,8 @@ cd -- "$(dirname -- "$0")/.."
 arch=$(uname -m)
 libs=(out/bb-probe out/gpu/libbbgpu.so)
 if [[ $arch == aarch64 ]]; then
-    [[ -f out/fex/libbbcpu.so ]] || { echo 'Build first: bash build.sh' >&2; exit 1; }
-    libs+=(out/fex/libbbcpu.so)
+    [[ -f out/fex/libbbcpu.so && -f out/aot-cpu/libbbcpu.so ]] || { echo 'Build first: bash build.sh' >&2; exit 1; }
+    libs+=(out/fex/libbbcpu.so out/aot-cpu/libbbcpu.so)
 fi
 # NIX: the nix command (default nix; e.g. "nix-portable nix" without a system Nix).
 # BB_NIXPKGS: the nixpkgs the build's nix-shell used (-I nixpkgs=...), when not <nixpkgs>.
