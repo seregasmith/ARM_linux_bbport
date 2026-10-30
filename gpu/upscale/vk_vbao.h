@@ -1,8 +1,9 @@
 // SPDX-FileCopyrightText: Copyright 2026 bbport contributors
 // SPDX-License-Identifier: GPL-2.0-or-later
 // bbport: GT-VBAO (ground-truth AO with a visibility bitmask, Therrien et al. 2023) in place of the
-// game's SSAO. The game keeps its own AO passes; after the last one the AO target is overwritten
-// with VBAO computed from the scene depth, so the game's lighting uses it as its own. The game
+// game's SSAO. After the game's last AO pass the AO target is overwritten with VBAO computed from
+// the scene depth, so the game's lighting uses it as its own (the half-size path's own SSAO draw is
+// left out then: ReplacesDraw). The game
 // has two SSAO paths (docs/vbao.md): a temporal one ending in an upsample into an R8 target at
 // the scene size (pixel shader c45c51cb), and a cheaper one whose half-size RGBA8 target is read
 // directly (pixel shader cbbca5dc; the AO is its red channel).
@@ -52,6 +53,12 @@ public:
     /// A scaled upscaler wrote `output` (RGBA8, shown instead of the game's frame): the AO
     /// view draws there.
     void OnUpscaled(vk::Image output, u32 width, u32 height);
+
+    /// The game's draw with pixel shader `ps_hash` into `target` can be left out: it is the
+    /// half-size SSAO (AoHalfShader), VBAO is on and OnAoPass will overwrite the AO right after
+    /// (the red channel; the target's other channels are not read, docs/vbao.md). The temporal
+    /// path's passes are kept (their history). BB_VBAO_GAME_AO=1: always drawn (A/B).
+    [[nodiscard]] bool ReplacesDraw(u64 ps_hash, VideoCore::ImageId target) const;
 
     /// The pixel shader of a draw that ends one of the game's AO paths.
     [[nodiscard]] static bool AoShader(u64 ps_hash) noexcept {

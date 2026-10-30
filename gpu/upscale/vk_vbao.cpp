@@ -48,6 +48,21 @@ struct BlurConstants {
     float normal_power;
 };
 
+/// VBAO can write the AO target `ao` from the scene depth `depth`: an R8 target of the depth's size
+/// (the temporal path's upsample) or, `half`, an RGBA8 target of half its size rounded up (the
+/// half-size path), usable as a storage image.
+bool AoFits(const VideoCore::Image& depth, const VideoCore::Image& ao, bool& half) {
+    const auto depth_format = depth.info.pixel_format;
+    const auto ao_format = ao.info.pixel_format;
+    half = ao_format == vk::Format::eR8G8B8A8Unorm;
+    const u32 scale = half ? 2 : 1;
+    return (depth_format == vk::Format::eD32Sfloat || depth_format == vk::Format::eD32SfloatS8Uint) &&
+           (ao_format == vk::Format::eR8Unorm || half) &&
+           bool(ao.usage_flags & vk::ImageUsageFlagBits::eStorage) &&
+           ao.info.size.width == (depth.info.size.width + scale - 1) / scale &&
+           ao.info.size.height == (depth.info.size.height + scale - 1) / scale;
+}
+
 } // namespace
 
 Vbao::Vbao(const Instance& instance_, Scheduler& scheduler_,
@@ -107,6 +122,29 @@ bool Vbao::Enabled() const {
     return BbSettings::Get().vbao && camera.Enabled();
 }
 
+bool Vbao::ReplacesDraw(u64 ps_hash, VideoCore::ImageId target) const {
+    static const bool keep = bb_env_on("BB_VBAO_GAME_AO");
+    if (keep || ps_hash != AoHalfShader || !target || !Enabled()) {
+        return false;
+    }
+    const auto proj = camera.SceneProjection();
+    const VideoCore::ImageId depth_id = camera.Depth();
+    if (!depth_id || proj[0] == 0.0f || proj[1] == 0.0f) {
+        return false;
+    }
+    bool half = false;
+    if (!AoFits(texture_cache.GetImage(depth_id), texture_cache.GetImage(target), half) || !half) {
+        return false;
+    }
+    static bool logged = false;
+    if (!logged) {
+        logged = true;
+        std::printf("VBAO: the game's half-size SSAO draw is left out (VBAO overwrites it; "
+                    "BB_VBAO_GAME_AO=1: drawn)\n");
+    }
+    return true;
+}
+
 void Vbao::OnAoPass(VideoCore::ImageId target, VideoCore::ImageId normals_id, bool temporal) {
     const auto proj = camera.SceneProjection();
     const VideoCore::ImageId depth_id = camera.Depth();
@@ -118,13 +156,10 @@ void Vbao::OnAoPass(VideoCore::ImageId target, VideoCore::ImageId normals_id, bo
     const auto depth_format = depth.info.pixel_format;
     const auto ao_format = ao.info.pixel_format;
     // The half-size path: an RGBA8 target of half the depth's size (rounded up).
-    const bool half = ao_format == vk::Format::eR8G8B8A8Unorm;
+    bool half = false;
+    const bool fits = AoFits(depth, ao, half);
     const u32 scale = half ? 2 : 1;
-    if ((depth_format != vk::Format::eD32Sfloat && depth_format != vk::Format::eD32SfloatS8Uint) ||
-        (ao_format != vk::Format::eR8Unorm && !half) ||
-        !(ao.usage_flags & vk::ImageUsageFlagBits::eStorage) ||
-        ao.info.size.width != (depth.info.size.width + scale - 1) / scale ||
-        ao.info.size.height != (depth.info.size.height + scale - 1) / scale) {
+    if (!fits) {
         static bool warned = false;
         if (!warned) {
             warned = true;

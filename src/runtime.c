@@ -207,6 +207,7 @@ static ABI __attribute__((noreturn)) void guest_libc_exit(int status) {
     exit(status);
 }
 uintptr_t runtime_libc_base;
+uintptr_t runtime_image_base;
 uintptr_t runtime_resolve(const char *name, int is_data) {
     if (!(capabilities & 1)) return 0;
     if (is_data) {

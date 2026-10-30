@@ -38,7 +38,15 @@ temporal upscaler accumulates (else it is fixed). `vbao_blur.comp` then denoises
 Gaussian, taps weighted down by their depth and normal differences) into the R8 target, or (variant
 `OUTPUT_RGBA`) the red channel of the RGBA8 target.
 
-The game's own SSAO passes still run (skipping them would save their cost).
+With VBAO on, the half-size path's SSAO draw (`cbbca5dc`) is left out (`Vbao::ReplacesDraw`, checked in
+`Rasterizer::DrawRecord` before the draw is recorded): VBAO overwrites its red channel right after,
+and nothing reads the others. The render pass still begins and ends, so the target's state is as
+after the draw. It saves about 0.1 ms per frame on an Adreno 830 at 1064x600 (2026-10-30): the GPU
+profile's label for that pass (1.17 ms before, 1.05 ms after) also holds VBAO's own compute, which
+runs right after the draw. VBAO itself costs about 1 ms there; with VBAO off the game's SSAO costs
+about 0.1 ms.
+`BB_VBAO_GAME_AO=1` draws it anyway (A/B). The temporal path's passes still run: their output also
+feeds the next frame's history.
 
 ## Tuning
 

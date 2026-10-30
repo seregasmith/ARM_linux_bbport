@@ -755,6 +755,7 @@ int main(int argc, char **argv) {
     /* The guest CPU learns the image before the GPU library starts: its hooks (engine fixes, guest hooks) go into the native
      * CPU's hook slots, which it finds by image offset. */
     guest_cpu_code((uintptr_t)image, round_page(size));
+    runtime_image_base = (uintptr_t)image;
     if (!cpu_only) {
         char title[128]="Bloodborne", serial[16]="UNKNOWN", sfo[4096];
         uint32_t attributes=0;

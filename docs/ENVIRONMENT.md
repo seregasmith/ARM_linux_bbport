@@ -102,7 +102,7 @@ What players and the launchers set. The menu, bbport.ini and the launcher write 
 | `BB_UPSCALE_PRESET` | the upscaler quality preset (the menu's) |
 | `BB_USER_NAME` | the PS4 user name (default Hunter) |
 
-## Tuning (233)
+## Tuning (236)
 
 Defaults to change on a machine where they misbehave, workarounds, and switches that turn a fix off for comparison.
 
@@ -265,6 +265,8 @@ Defaults to change on a machine where they misbehave, workarounds, and switches 
 | `BB_OCCLUSION_LABEL_ORDER` | =0: occlusion labels may go ahead |
 | `BB_OCCLUSION_QUERIES` | =0: a fixed occlusion result sequence instead of real queries |
 | `BB_OF_FAST` | =1: optical flow without a search on the finest level |
+| `BB_PACER_MARGIN_US` | =N (default 8000): the frame pacer's sleep ends this many microseconds before the deadline, the game spins the rest |
+| `BB_PACER_SLEEP` | =0: the game's frame pacer spins out each frame's time again (by default it sleeps until 1 ms before the deadline) |
 | `BB_PACE_CATCHUP` | =1: frame pacing catches up after a late frame |
 | `BB_PAD_CENTER` | =lx,ly,rx,ry: the sticks' neutral position |
 | `BB_PAD_CENTER_CAL` | =0: no measurement of the sticks' neutral position |
@@ -324,6 +326,7 @@ Defaults to change on a machine where they misbehave, workarounds, and switches 
 | `BB_VBAO_BLUR` | =N (default 2, 0: raw): VBAO denoise taps per side |
 | `BB_VBAO_BLUR_DEPTH` | =f (default 0.05): relative depth difference that stops the VBAO blur |
 | `BB_VBAO_BLUR_NORMAL` | =f (default 8, 0 ignores normals): how sharply the VBAO blur stops at normal changes |
+| `BB_VBAO_GAME_AO` | =1: the game's half-size SSAO draw runs under VBAO too (by default left out: VBAO overwrites it) |
 | `BB_VBAO_NORMALS` | =0: VBAO from depth only |
 | `BB_VBAO_POWER` | =f (default 1.5): VBAO strength |
 | `BB_VBAO_RADIUS` | =metres (default 1.5): VBAO radius |

@@ -769,17 +769,25 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
             });
         }
     }
-    scheduler.RecordCrumb(crumb, [=](vk::CommandBuffer cmdbuf) {
-        cmdbuf.bindPipeline(vk::PipelineBindPoint::eGraphics, handle);
-        if (DynCheck::Enabled()) {
-            DynCheck::Draw(cmdbuf, check_viewports, check_scissors, check_vs, check_ps);
-        }
-        if (is_indexed) {
-            cmdbuf.drawIndexed(num_indices, num_instances, 0, s32(first_vertex), first_instance);
-        } else {
-            cmdbuf.draw(num_indices, num_instances, first_vertex, first_instance);
-        }
-    });
+    // bbport: with VBAO on, the game's half-size SSAO draw is left out: VBAO overwrites its target
+    // right after it (OnAoPass below) and the target's other channels are not read (docs/vbao.md).
+    // The render pass and the target's state stay as for the draw. About 0.1 ms per frame on an
+    // Adreno 830 at 1064x600 (2026-10-30; the GPU profile's label for this pass, 1.2 ms, also holds
+    // VBAO's own compute, about 1 ms, which runs right after it).
+    const bool replaced = ps_info && vbao->ReplacesDraw(ps_info->pgm_hash, cb_descs[0].first);
+    if (!replaced) {
+        scheduler.RecordCrumb(crumb, [=](vk::CommandBuffer cmdbuf) {
+            cmdbuf.bindPipeline(vk::PipelineBindPoint::eGraphics, handle);
+            if (DynCheck::Enabled()) {
+                DynCheck::Draw(cmdbuf, check_viewports, check_scissors, check_vs, check_ps);
+            }
+            if (is_indexed) {
+                cmdbuf.drawIndexed(num_indices, num_instances, 0, s32(first_vertex), first_instance);
+            } else {
+                cmdbuf.draw(num_indices, num_instances, first_vertex, first_instance);
+            }
+        });
+    }
     // BB_TRACE_SHADER with BB_GPU_PROFILE: a mark right after the traced vertex shader's draws,
     // so the profile splits their pass into the draw and what follows it unlabeled.
     if (auto* profiler = GpuProfiler::Get()) {

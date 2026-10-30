@@ -162,6 +162,8 @@ int runtime_snapshot_queue_restore(void);
 void runtime_thread_attach_host(const char *name);
 /* The game's libc.prx where it was linked (image + module base), 0 before or without it. */
 extern uintptr_t runtime_libc_base;
+/* bbport: where the game's image is mapped (src/probe.c), 0 before; image offsets of known code are against it. */
+extern uintptr_t runtime_image_base;
 /* Calls that need no work here (runtime_compat.c). */
 uintptr_t runtime_compat_resolve(const char *name);
 #endif

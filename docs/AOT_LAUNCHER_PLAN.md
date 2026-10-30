@@ -349,6 +349,21 @@ and the writer changed to use the slot. Generators in this repo (`tools/aot_cata
      `<data>/profiles/<time>/`, summary.txt into the log at exit, "Compare the last two"). tests/test_bbport_profile.py.
      To do on the handheld: FEX uncapped at a fixed spot (what limits the frame rate: the summary's "What limits it");
      FEX and native at 30 FPS at the same spot (CPU, temperature, power).
+   - Results (2026-10-30, 1064x600 scene): native and FEX the same (30 FPS: 242 vs 242 % CPU; uncapped ~58 FPS both,
+     GPU 85-99 % busy at 1.1 GHz: GPU-bound). Only the FMOD mixer (-14..-24 %) and memory (-10 %, no JIT cache) differ.
+     GPU profile: 19.5 ms/frame; SSR patch 1.6 ms, VBAO about 1 ms (its label also held the game's SSAO, 0.1 ms: now left
+     out under VBAO, docs/vbao.md),
+     copy shader fefebf9f 0.9 ms, FSR 0.7 ms, the rest spread over ~200 passes. At a cap the main thread is ~90 % busy under
+     both CPUs: the pacer (+0x2034770) spins on gettimeofday (+0x2034b08; its sleeping loop is off in the release build).
+     `src/runtime_time.c` now sleeps there until BB_PACER_MARGIN_US (+ recent wake lateness) before the pacer's own
+     deadline (BB_PACER_SLEEP=0: the spin). Measured at 30 FPS (native, same spot), 1 ms margin: main thread 90 -> 34 % of a
+     core, process CPU 245 -> 193 %, max temperature 95 -> 78 °C (CPU 81 -> 66 °C), battery 5.8 W (uncapped: 11.7-13.3 W).
+     The sleeps wake on time, but 50 ms frames grow as the margin shrinks (per minute: spin 3, 4 ms 14, 2 ms 29, 1 ms 30),
+     so the default margin is 8 ms (30 FPS run with it still to do). Uncapped and "uncap + 60 FPS limit" (GPU-bound,
+     ~50 FPS) the pacer never sleeps (no frame ends early), so the sleep costs nothing there.
+     The 60 and 90 FPS presets stopped at start on the native CPU ("60 FPS++"/"90 FPS++" patch functions the catalog
+     has no variant for; only part:fps=uncap): run.sh now runs them as uncap with BB_FPS_LIMIT=60/90.
+     Conclusion: no more native-CPU work for speed; it stays an opt-in experiment.
    - Gate: title, Continue, a few minutes of play on AOT; then FEX vs AOT with `odin_profile_remote.sh` (CPU per thread)
 1b. **Frame-rate hooks as slots.** Port the slot path of the Android `bbport_frame_rate.cpp` (+ `bbport_hook_sites.h`;
    `Live` at 0x56d3f40 so the redirects are fixed bytes, a variant `patcher:framerate`), then drop the `BB_FRAME_HOOKS=0`

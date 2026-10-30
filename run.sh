@@ -131,6 +131,18 @@ fi
 # 60/90 (the same hooks, at most 60/90 frames a second) or 30 (the game's own). BB_PATCHES adds
 # patch names ("a;b").
 fps=${BB_FPS:-uncap}
+# Native CPU with the frame-rate patches (BB_FRAME_HOOKS=0 above): the tool's catalog has a variant for the uncapped patch
+# only (part:fps=uncap). "60 FPS++" and "90 FPS++" rewrite functions the library has no variant for, and the game stopped at
+# start (2026-10-30), so the 60 and 90 presets run as uncap with that frame limit: the same frames, the game steps by each
+# frame's time and the present thread lets at most that many through (a lower BB_FPS_LIMIT stays).
+if [[ ${native_cpu:-} == 1 && ${BB_FRAME_HOOKS:-} == 0 && ( $fps == 60 || $fps == 90 ) ]]; then
+    if ! [[ ${BB_FPS_LIMIT:-} =~ ^[0-9]+$ ]] || (( BB_FPS_LIMIT <= 0 || BB_FPS_LIMIT > fps )); then
+        export BB_FPS_LIMIT=$fps
+    fi
+    echo "Native CPU: the $fps FPS preset runs as uncapped with a $BB_FPS_LIMIT FPS limit (the library's frame-rate variant is the uncapped one)"
+    fps=uncap
+    export BB_FPS=uncap
+fi
 # bbport.ini output_res other than 1080p (720p for the Steam Deck, 1440p, 2160p): the whole game
 # renders at the preset's size of the output (a patch), the upscaler fills the output, the UI is
 # drawn at the output size. Preset and output changes need a restart.
