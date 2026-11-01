@@ -272,6 +272,12 @@ next to *Play* (make a copy of the saves, go back to it, undo the last return) a
 section in the overlay menu (*Back up now*, *Restore and restart*: the copy is put back before the
 game reads its saves). One copy is kept in `user/savedata-snapshot/`; a return keeps the saves it
 replaced in `user/savedata-snapshot.undo/`. The game is designed without this; turn it on knowingly.
+**Cheats, all off by default:** the launcher's *Cheats* section (for the next start) and a *Cheats*
+section in the overlay menu (applied at once): Blood Vials and Quicksilver Bullets not used up,
+infinite consumables, infinite stamina, stealth, firearm range, more Blood Echoes from enemies, and
+buttons that add Blood Echoes or Insight. A cheat turned off puts the game's data back; what you
+gained stays in your save. They stay off while the game plays online. Ported from
+[Lantern Engine](https://github.com/Awakenchan/LanternEngine) ([plan](docs/CHEATS_PLAN.md)).
 **DLC:** put your add-on dumps in `user/addcont/<title id>/<entitlement label>/` (shadPS4's
 layout, e.g. `user/addcont/CUSA03173/SPEXPANSIONDLC03` for The Old Hunters): each folder there is
 reported to the game as an installed add-on.
@@ -571,6 +577,9 @@ online module's network code from [shadPS4 v0.20](https://github.com/shadps4-emu
 The Hunter's Dream backend from
 [droogie/bbhost](https://github.com/droogie/bbhost) (GPL-3.0-or-later, so `libbbnet20.so` as a
 whole is GPL-3.0-or-later),
+the cheats from [Lantern Engine](https://github.com/Awakenchan/LanternEngine) by Awaken
+(GPL-3.0-or-later: `gpu/games/bloodborne_cheats*`, `gpu/shim/bbport_overlay_cheats.cpp`,
+`tools/cheat_sites.py`; so `libbbgpu.so` as a whole is GPL-3.0-or-later),
 [dxil-spirv](https://github.com/HansKristian-Work/dxil-spirv) (MIT, used to build the
 FSR 4.1.1 assets), [wepoll](https://github.com/piscisaureus/wepoll) (BSD-2-Clause, the Windows
 online module). Game patches by Kyo, Lance McDonald, auser1337, illusion, emoose and other

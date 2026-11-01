@@ -130,6 +130,13 @@ OutputSize CurrentOutput();
 /// "2560x1080".
 std::string SizeText(OutputSize size);
 
+/// Cheats (games/bloodborne_cheats.cpp, docs/CHEATS_PLAN.md): Blood Vials and Quicksilver Bullets
+/// off or infinite (not used up); the firearm range in percent (0: the game's) and the multiplier of
+/// the Blood Echoes enemies give (1: the game's), from these lists only.
+inline constexpr int CheatOff = 0, CheatInfinite = -1;
+inline constexpr int CheatGunRanges[] = {0, 150, 200, 300};
+inline constexpr int CheatEchoMultipliers[] = {1, 2, 5, 10};
+
 struct Values {
     std::atomic<MenuLanguage> menu_language{MenuLanguage::Russian};
     /// Chosen in the menu (or already in bbport.ini): only then is it saved, so the language
@@ -229,6 +236,10 @@ struct Values {
     /// DLSS (gpu/dlss_bridge, NVIDIA RTX) is ready, or why not (null before the device exists).
     std::atomic<bool> dlss_supported{false};
     std::atomic<const char*> dlss_problem{nullptr};
+    /// Cheats (bbport.ini cheat_*; the launcher's Cheats section, the overlay's): live, off online.
+    std::atomic<int> cheat_vials{CheatOff}, cheat_bullets{CheatOff};
+    std::atomic<bool> cheat_consumables{false}, cheat_stamina{false}, cheat_stealth{false};
+    std::atomic<int> cheat_gun_range{0}, cheat_echo_multiplier{1};
 
     /// Startup settings for the explicit BB_RENDER_RES compatibility patch only.
     int startup_preset = NativeAA;

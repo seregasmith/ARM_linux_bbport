@@ -149,6 +149,11 @@ MODEL_LOD = [("Как в игре", "0"), ("Максимальная (-2)", "-2"
              ("Минимальная (2)", "2")]
 FPS_MODES = [("Без ограничения", "uncap"), ("60", "60"), ("90", "90"),
              ("30 (как на PS4)", "30")]
+# Cheats (bbport.ini cheat_*, gpu/games/bloodborne_cheats.cpp): for the next start; the port's in-game
+# menu changes them at once.
+CHEAT_ITEM_MODES = [("Как в игре", "off"), ("Не тратятся", "infinite")]
+CHEAT_GUN_RANGES = [("Как в игре", "off"), ("150%", "150"), ("200%", "200"), ("300%", "300")]
+CHEAT_ECHO_MULTIPLIERS = [("Как в игре", "1"), ("x2", "2"), ("x5", "5"), ("x10", "10")]
 # Issue #299 (runtime_pad.c button_prompts): the button icons of a device whatever is used.
 BUTTON_PROMPTS = [("Авто (последнее устройство)", "auto"), ("PlayStation", "playstation"),
                   ("Xbox", "xbox"), ("Клавиатура и мышь", "keyboard")]
@@ -264,6 +269,13 @@ INI_DEFAULTS = {
     "button_prompts": "auto",
     "game_text_language": "auto",
     "game_voice_language": "auto",
+    "cheat_vials": "off",
+    "cheat_bullets": "off",
+    "cheat_consumables": "0",
+    "cheat_stamina": "0",
+    "cheat_stealth": "0",
+    "cheat_gun_range": "off",
+    "cheat_echo_multiplier": "1",
     **{key: "1" if default else "0" for key, _, default in EFFECTS},
 }
 
@@ -604,7 +616,8 @@ LINUX_SECTIONS = [section for section in SETTINGS_SCHEMA["sections"]
 SECTION_ICONS = {"game": "input-gaming-symbolic", "display": "video-display-symbolic",
                  "graphics": "applications-graphics-symbolic", "effects": "weather-clear-night-symbolic",
                  "performance": "power-profile-performance-symbolic", "controls": "input-keyboard-symbolic",
-                 "mods": "folder-symbolic", "developer": "utilities-system-monitor-symbolic"}
+                 "mods": "folder-symbolic", "cheats": "applications-games-symbolic",
+                 "developer": "utilities-system-monitor-symbolic"}
 
 
 def schema_text(texts):

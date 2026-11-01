@@ -32,6 +32,39 @@ float Clamp(float v, float lo, float hi) {
     return std::clamp(v, lo, hi);
 }
 
+// Cheats (Lantern Engine's keys): Blood Vials and Quicksilver Bullets "off" or "infinite" (the
+// custom amounts come later, docs/CHEATS_PLAN.md phase 2); the firearm range and the echo
+// multiplier one of their lists. Anything else is off, with a line in the log.
+int CheatMode(const std::string& key, const std::string& value) {
+    if (value == "off" || value == "0") {
+        return CheatOff;
+    }
+    if (value == "infinite") {
+        return CheatInfinite;
+    }
+    std::printf("Settings: unknown %s '%s' (expected off or infinite); off\n", key.c_str(), value.c_str());
+    return CheatOff;
+}
+
+std::string CheatModeText(int value) {
+    return value == CheatInfinite ? "infinite" : "off";
+}
+
+/// One of `choices` as written ("150"); "off" and anything else is the first (the game's own).
+template <std::size_t N>
+int CheatChoice(const std::string& key, const std::string& value, const int (&choices)[N], const char* expected) {
+    for (const int choice : choices) {
+        if (value == std::to_string(choice)) {
+            return choice;
+        }
+    }
+    if (value != "off") {
+        std::printf("Settings: unknown %s '%s' (expected %s); %d\n", key.c_str(), value.c_str(), expected,
+                    choices[0]);
+    }
+    return choices[0];
+}
+
 void Set(Values& v, const std::string& key, const std::string& value) {
     const float f = float(std::atof(value.c_str()));
     const int i = std::atoi(value.c_str());
@@ -129,6 +162,20 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         for (int a = 0; a < AspectCount; ++a) {
             if (value == AspectKey(a)) v.aspect = a;
         }
+    } else if (key == "cheat_vials") {
+        v.cheat_vials = CheatMode(key, value);
+    } else if (key == "cheat_bullets") {
+        v.cheat_bullets = CheatMode(key, value);
+    } else if (key == "cheat_consumables") {
+        v.cheat_consumables = i != 0;
+    } else if (key == "cheat_stamina") {
+        v.cheat_stamina = i != 0;
+    } else if (key == "cheat_stealth") {
+        v.cheat_stealth = i != 0;
+    } else if (key == "cheat_gun_range") {
+        v.cheat_gun_range = CheatChoice(key, value, CheatGunRanges, "off, 150, 200 or 300");
+    } else if (key == "cheat_echo_multiplier") {
+        v.cheat_echo_multiplier = CheatChoice(key, value, CheatEchoMultipliers, "1, 2, 5 or 10");
     } else {
         for (int e = 0; e < EffectCount; ++e) {
             if (key == Effects[e].key) {
@@ -491,6 +538,14 @@ void Save() {
     put("frame_generation", FrameGenName(v.frame_generation));
     put("frame_generation_multiplier", std::to_string(v.frame_generation_multiplier.load()));
     put("low_latency", LowLatencyName(v.low_latency));
+    // The cheats (the launcher's Cheats section edits them too).
+    put("cheat_vials", CheatModeText(v.cheat_vials));
+    put("cheat_bullets", CheatModeText(v.cheat_bullets));
+    put("cheat_consumables", flag(v.cheat_consumables));
+    put("cheat_stamina", flag(v.cheat_stamina));
+    put("cheat_stealth", flag(v.cheat_stealth));
+    put("cheat_gun_range", v.cheat_gun_range == 0 ? std::string{"off"} : std::to_string(v.cheat_gun_range.load()));
+    put("cheat_echo_multiplier", std::to_string(v.cheat_echo_multiplier.load()));
     if (v.menu_x >= 0.0f && v.menu_y >= 0.0f) {
         put("menu_pos", fixed(v.menu_x, 4) + "," + fixed(v.menu_y, 4));
     }

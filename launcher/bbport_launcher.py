@@ -523,8 +523,38 @@ class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFi
                                       text=self.settings["extra_env"])
         dev.add(self.extra_row)
         sec["developer"].add(dev)
+        self.build_cheat_rows(sec["cheats"])
         self.describe_rows()
         return list(sec.values())
+
+    def build_cheat_rows(self, page):
+        """The Cheats section (bbport.ini cheat_*): for the next start; the port's in-game menu
+        changes them at once (gpu/games/bloodborne_cheats.cpp)."""
+        def switch(title, key):
+            return Adw.SwitchRow(title=tr(title), active=self.ini.get(key) == "1")
+        items = Adw.PreferencesGroup(title=tr("Предметы"))
+        self.cheat_vials_row = combo_row(tr("Флаконы крови"), None, CHEAT_ITEM_MODES,
+                                         self.ini.get("cheat_vials", "off"))
+        items.add(self.cheat_vials_row)
+        self.cheat_bullets_row = combo_row(tr("Ртутные пули"), None, CHEAT_ITEM_MODES,
+                                           self.ini.get("cheat_bullets", "off"))
+        items.add(self.cheat_bullets_row)
+        self.cheat_consumables_row = switch("Бесконечные расходники", "cheat_consumables")
+        items.add(self.cheat_consumables_row)
+        character = Adw.PreferencesGroup(title=tr("Персонаж"))
+        self.cheat_stamina_row = switch("Бесконечная выносливость", "cheat_stamina")
+        character.add(self.cheat_stamina_row)
+        self.cheat_stealth_row = switch("Скрытность", "cheat_stealth")
+        character.add(self.cheat_stealth_row)
+        self.cheat_gun_range_row = combo_row(tr("Дальность огнестрела"), None, CHEAT_GUN_RANGES,
+                                             self.ini.get("cheat_gun_range", "off"))
+        character.add(self.cheat_gun_range_row)
+        echoes = Adw.PreferencesGroup(title=tr("Отголоски крови"))
+        self.cheat_echo_row = combo_row(tr("Отголоски за врагов"), None, CHEAT_ECHO_MULTIPLIERS,
+                                        self.ini.get("cheat_echo_multiplier", "1"))
+        echoes.add(self.cheat_echo_row)
+        for group in (items, character, echoes):
+            page.add(group)
 
     def describe_rows(self):
         """Each row's description (and its choices' notes) from launcher/settings_schema.json."""
@@ -549,6 +579,10 @@ class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFi
             "save_log": self.save_log_row, "crash_diag": self.crash_diag_row,
             "frame_stats": self.stats_row, "gpu_profile": self.profile_row, "perf_profile": self.perf_profile_row,
             "vk_validation": self.validation_row, **self.camera_speed_rows, **self.effect_rows,
+            "cheat_vials": self.cheat_vials_row, "cheat_bullets": self.cheat_bullets_row,
+            "cheat_consumables": self.cheat_consumables_row, "cheat_stamina": self.cheat_stamina_row,
+            "cheat_stealth": self.cheat_stealth_row, "cheat_gun_range": self.cheat_gun_range_row,
+            "cheat_echo_multiplier": self.cheat_echo_row,
         }
         # Rows whose subtitle shows a state (a path, a device): the description is a tooltip.
         stateful = {"game_dir", "user_dir", "gpu", "gamepad", "display"}
@@ -922,6 +956,13 @@ class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFi
             "game_voice_language": combo_value(self.voice_language_row),
             **{key: "1" if row.get_active() else "0" for key, row in self.effect_rows.items()},
             "anti_aliasing": combo_value(self.aa_row),
+            "cheat_vials": combo_value(self.cheat_vials_row),
+            "cheat_bullets": combo_value(self.cheat_bullets_row),
+            "cheat_consumables": "1" if self.cheat_consumables_row.get_active() else "0",
+            "cheat_stamina": "1" if self.cheat_stamina_row.get_active() else "0",
+            "cheat_stealth": "1" if self.cheat_stealth_row.get_active() else "0",
+            "cheat_gun_range": combo_value(self.cheat_gun_range_row),
+            "cheat_echo_multiplier": combo_value(self.cheat_echo_row),
         })
         save_ini(self.ini, self.ini_lines)
         self.ini, self.ini_lines = load_ini()

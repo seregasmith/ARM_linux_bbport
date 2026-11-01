@@ -64,6 +64,9 @@ int bbgpu_pointer_wanted(void);
 typedef void (*BbGpuPadFilter)(uint32_t *buttons, const uint8_t *sticks);
 void bbgpu_add_pad_filter(BbGpuPadFilter filter);
 void bbgpu_filter_pad(uint32_t *buttons, const uint8_t *sticks);
+/* Once a frame on the game's main thread, from its pad read (runtime_pad.c, outside the pad lock):
+ * what reads and writes the game's state then (the cheats, games/bloodborne_cheats.cpp). */
+void bbgpu_game_tick(void);
 /* The shown frame's width / height (the display buffer's; the window letterboxes it). */
 float bbgpu_frame_aspect(void);
 /* A line of text over the game, near the bottom, until called with NULL (any thread). */
@@ -99,7 +102,8 @@ int bbgpu_import_shader_recipes(const char *cache_dir, const char *pack, const c
 int bbgpu_free_camera(void);
 /* The game's current camera state (its projection parameters at +0x50), 0 until known. */
 uint64_t bbgpu_camera_state(void);
-/* Patches the loaded image before the game runs (image still writable): libGnm entry hooks. */
+/* Patches the loaded image before the game runs (image still writable): libGnm entry hooks; after
+ * the startup patches, so the cheats check the game's code as it will run. */
 void bbgpu_patch_image(unsigned char *image, uint64_t size);
 /* Number of symbols registered by the vendored libraries (diagnostics). */
 unsigned bbgpu_symbol_count(void);

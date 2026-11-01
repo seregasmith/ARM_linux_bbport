@@ -539,6 +539,18 @@ EN = {
     "Папка игры не подходит: нужен Bloodborne 1.09 с чистым eboot.bin (см. раздел «Игра»)": "The game folder does not fit: it needs Bloodborne 1.09 with a clean eboot.bin (see the Game section)",
     "Идёт сборка нативного кода: дождитесь её или отмените": "The native code is being built: wait for it or cancel it",
     "Собран другой версией bb-recomp ({}): пересоберите": "Built by another bb-recomp version ({}): rebuild",
+    # Cheats (the launcher's Cheats section, games/bloodborne_cheats.cpp).
+    "Предметы": "Items",
+    "Персонаж": "Character",
+    "Отголоски крови": "Blood Echoes",
+    "Флаконы крови": "Blood Vials",
+    "Ртутные пули": "Quicksilver Bullets",
+    "Бесконечные расходники": "Infinite consumables",
+    "Бесконечная выносливость": "Infinite stamina",
+    "Скрытность": "Stealth",
+    "Дальность огнестрела": "Firearm range",
+    "Отголоски за врагов": "Echoes from enemies",
+    "Не тратятся": "Not used up",
 }
 
 PT_BR = {
@@ -863,6 +875,18 @@ PT_BR = {
     "Возврат отменён": "Volta desfeita",
     "Сохранения возвращены к точке": "Saves restaurados ao ponto de salvamento",
     "Отмена": "Cancelar",
+    # Cheats (the launcher's Cheats section, games/bloodborne_cheats.cpp).
+    "Предметы": "Itens",
+    "Персонаж": "Personagem",
+    "Отголоски крови": "Ecos de Sangue",
+    "Флаконы крови": "Frascos de Sangue",
+    "Ртутные пули": "Balas de Mercúrio",
+    "Бесконечные расходники": "Consumíveis infinitos",
+    "Бесконечная выносливость": "Estamina infinita",
+    "Скрытность": "Furtividade",
+    "Дальность огнестрела": "Alcance das armas de fogo",
+    "Отголоски за врагов": "Ecos dos inimigos",
+    "Не тратятся": "Não se gastam",
 }
 
 
@@ -1282,6 +1306,18 @@ ZH_CN = {
     "Вернуться": "恢复",
     "Возврат отменён": "已撤销恢复",
     "Сохранения возвращены к точке": "存档已恢复到存档点",
+    # Cheats (the launcher's Cheats section, games/bloodborne_cheats.cpp).
+    "Предметы": "物品",
+    "Персонаж": "角色",
+    "Отголоски крови": "血之回响",
+    "Флаконы крови": "采血瓶",
+    "Ртутные пули": "水银子弹",
+    "Бесконечные расходники": "无限消耗品",
+    "Бесконечная выносливость": "无限耐力",
+    "Скрытность": "潜行",
+    "Дальность огнестрела": "火器射程",
+    "Отголоски за врагов": "敌人给予的回响",
+    "Не тратятся": "不消耗",
 }
 
 # New French Translation by @Sarxzer
@@ -1686,6 +1722,18 @@ FR_FR = {
     "Вернуться": "Revenir",
     "Возврат отменён": "Retour annulé",
     "Сохранения возвращены к точке": "Sauvegardes ramenées au point",
+    # Cheats (the launcher's Cheats section, games/bloodborne_cheats.cpp).
+    "Предметы": "Objets",
+    "Персонаж": "Personnage",
+    "Отголоски крови": "Échos de sang",
+    "Флаконы крови": "Fioles de sang",
+    "Ртутные пули": "Balles de vif-argent",
+    "Бесконечные расходники": "Consommables infinis",
+    "Бесконечная выносливость": "Endurance infinie",
+    "Скрытность": "Discrétion",
+    "Дальность огнестрела": "Portée des armes à feu",
+    "Отголоски за врагов": "Échos des ennemis",
+    "Не тратятся": "Ne s'épuisent pas",
 }
 
 

@@ -31,7 +31,7 @@ public partial class MainWindow : Window
     {
         ["game"] = "", ["display"] = "", ["graphics"] = "", ["effects"] = "",
         ["performance"] = "", ["controls"] = "", ["mods"] = "", ["developer"] = "",
-        ["log"] = "", ["trophies"] = "\uE734", ["online"] = "\uE774",
+        ["log"] = "", ["trophies"] = "\uE734", ["online"] = "\uE774", ["cheats"] = "\uE945",
     };
 
     private static readonly Dictionary<string, (string Ru, string En)> Texts = new()

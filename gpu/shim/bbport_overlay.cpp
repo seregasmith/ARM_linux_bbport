@@ -322,6 +322,7 @@ void Menu() {
     GameEffectsSection(s);
     FrameRateLimitSection(s);
     SavePointSection();
+    CheatsSection(s);
     ImGui::SeparatorText(BbSettings::MenuText("Camera (right stick)", "Камера (правый стик)"));
     Slider(BbSettings::MenuText("Horizontal speed", "Скорость по горизонтали"), s.camera_speed[1], 0.25f, 2.0f);
     Slider(BbSettings::MenuText("Vertical speed", "Скорость по вертикали"), s.camera_speed[0], 0.25f, 2.0f);

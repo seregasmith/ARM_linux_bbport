@@ -130,6 +130,37 @@ int main() {
     s.frame_generation = BbSettings::FrameGenOff;
     s.low_latency = BbSettings::LowLatencyOff;
     assert(BbSettings::EffectiveLowLatency() == BbSettings::LowLatencyOff);
+    // Cheats (games/bloodborne_cheats.cpp): the keys parse, a bad value reads as off, all are saved.
+    write_frame_gen("cheat_vials=infinite\ncheat_bullets=off\n");
+    BbSettings::Load();
+    assert(s.cheat_vials == BbSettings::CheatInfinite && s.cheat_bullets == BbSettings::CheatOff);
+    BbSettings::Save();
+    for (const char* line : {"cheat_vials=infinite\n", "cheat_bullets=off\n", "cheat_gun_range=off\n",
+                             "cheat_echo_multiplier=1\n", "cheat_stamina=0\n", "cheat_stealth=0\n",
+                             "cheat_consumables=0\n"}) {
+        assert(Read(path).find(line) != std::string::npos);
+    }
+    write_frame_gen("cheat_vials=50\ncheat_bullets=lots\n"); // custom amounts: phase 2
+    BbSettings::Load();
+    assert(s.cheat_vials == BbSettings::CheatOff && s.cheat_bullets == BbSettings::CheatOff);
+    write_frame_gen("cheat_stamina=1\ncheat_stealth=1\ncheat_gun_range=200\ncheat_echo_multiplier=5\n"
+                    "cheat_consumables=1\n");
+    BbSettings::Load();
+    assert(s.cheat_stamina && s.cheat_stealth && s.cheat_consumables);
+    assert(s.cheat_gun_range == 200 && s.cheat_echo_multiplier == 5);
+    BbSettings::Save();
+    for (const char* line : {"cheat_stamina=1\n", "cheat_stealth=1\n", "cheat_gun_range=200\n",
+                             "cheat_echo_multiplier=5\n", "cheat_consumables=1\n"}) {
+        assert(Read(path).find(line) != std::string::npos);
+    }
+    write_frame_gen("cheat_stamina=0\ncheat_stealth=0\ncheat_gun_range=250\ncheat_echo_multiplier=3\n"
+                    "cheat_consumables=0\n");
+    BbSettings::Load();
+    assert(!s.cheat_stamina && !s.cheat_stealth && !s.cheat_consumables);
+    assert(s.cheat_gun_range == 0 && s.cheat_echo_multiplier == 1);
+    write_frame_gen("cheat_gun_range=300\ncheat_echo_multiplier=10\n");
+    BbSettings::Load();
+    assert(s.cheat_gun_range == 300 && s.cheat_echo_multiplier == 10);
     unlink(path);
-    std::puts("PASS: settings save keeps other keys, menu position, menu language, frame generation, low latency");
+    std::puts("PASS: settings save keeps other keys, menu position, menu language, frame generation, low latency, cheats");
 }

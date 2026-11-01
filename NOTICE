@@ -22,6 +22,10 @@ Code bbport is built on, with its own notices kept in its files:
   v0.20.0's network, NP and shadNet code (gpu/bbnet20/vendor/shadps4, gpu/bbnet20/SHADNET-PORT.md).
 - The online module's other parts (gpu/bbnet20: BBSC, The Hunter's Dream pool; GPL-3.0-or-later
   where their files say so) keep their authors' copyright (gpu/bbnet20/SHADNET-PORT.md).
+- The cheats (gpu/games/bloodborne_cheats*, gpu/shim/bbport_overlay_cheats.cpp,
+  tools/cheat_sites.py; GPL-3.0-or-later, Copyright 2026 Awaken), ported from Lantern Engine
+  (https://github.com/Awakenchan/LanternEngine, engine/gpu/shim/engine/cheats.cpp and
+  engine_state.cpp): libbbgpu.so, which contains them, is GPL-3.0-or-later as a whole.
 - The DLSS bridge (gpu/dlss_bridge, MIT), adapted from IFreemz's shadPS4-Bloodborne-DLSS-FSR
   (https://github.com/IFreemz/shadPS4-Bloodborne-DLSS-FSR).
 - AMD FidelityFX shaders and headers (MIT) in gpu/upscale/shaders/ffx, gpu/third_party and

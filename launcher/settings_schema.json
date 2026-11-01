@@ -2124,6 +2124,319 @@
    ]
   },
   {
+   "id": "cheats",
+   "icon": "cheats",
+   "title": {
+    "ru": "Читы",
+    "en": "Cheats",
+    "pt_BR": "Trapaças",
+    "zh_CN": "作弊",
+    "fr_FR": "Triches"
+   },
+   "description": {
+    "ru": "Применяются при следующем запуске; в игре — сразу, в меню порта (Insert / L3+R3). Выключенный чит возвращает данные игры, а полученное остаётся в сохранении. При игре по сети читы выключены.",
+    "en": "Applied at the next start; while playing, at once in the port's in-game menu (Insert / L3+R3). A cheat turned off puts the game's data back; what you gained stays in your save. Off while playing online.",
+    "pt_BR": "Aplicadas no próximo início; durante o jogo, na hora, no menu do port dentro do jogo (Insert / L3+R3). Uma trapaça desligada devolve os dados do jogo; o que você ganhou fica no save. Desligadas ao jogar online.",
+    "zh_CN": "下次启动时生效；游戏中可在游戏内移植菜单（Insert / L3+R3）中立即切换。关闭作弊会恢复游戏数据，已获得的内容会保留在存档中。联机游戏时作弊关闭。",
+    "fr_FR": "Appliquées au prochain démarrage ; en jeu, immédiatement dans le menu du portage (Insert / L3+R3). Une triche désactivée remet les données du jeu ; ce que vous avez obtenu reste dans votre sauvegarde. Désactivées en ligne."
+   },
+   "items": [
+    {
+     "key": "cheat_vials",
+     "type": "choice",
+     "store": "ini",
+     "default": "off",
+     "choices": [
+      {
+       "value": "off",
+       "ru": "Как в игре",
+       "en": "As in the game",
+       "pt_BR": "Como no jogo",
+       "zh_CN": "游戏默认",
+       "fr_FR": "Comme dans le jeu"
+      },
+      {
+       "value": "infinite",
+       "ru": "Не тратятся",
+       "en": "Not used up",
+       "pt_BR": "Não se gastam",
+       "zh_CN": "不消耗",
+       "fr_FR": "Ne s'épuisent pas"
+      }
+     ],
+     "title": {
+      "ru": "Флаконы крови",
+      "en": "Blood Vials",
+      "pt_BR": "Frascos de Sangue",
+      "zh_CN": "采血瓶",
+      "fr_FR": "Fioles de sang"
+     },
+     "description": {
+      "ru": "Не тратятся, когда вы их пьёте (нужен хотя бы один)",
+      "en": "Not used up when you drink one (you need at least one)",
+      "pt_BR": "Não se gastam ao beber (você precisa ter pelo menos um)",
+      "zh_CN": "饮用时不消耗（至少需要持有一瓶）",
+      "fr_FR": "Ne s'épuisent pas quand vous en buvez (il en faut au moins une)"
+     },
+     "group": {
+      "ru": "Предметы",
+      "en": "Items",
+      "pt_BR": "Itens",
+      "zh_CN": "物品",
+      "fr_FR": "Objets"
+     }
+    },
+    {
+     "key": "cheat_bullets",
+     "type": "choice",
+     "store": "ini",
+     "default": "off",
+     "choices": [
+      {
+       "value": "off",
+       "ru": "Как в игре",
+       "en": "As in the game",
+       "pt_BR": "Como no jogo",
+       "zh_CN": "游戏默认",
+       "fr_FR": "Comme dans le jeu"
+      },
+      {
+       "value": "infinite",
+       "ru": "Не тратятся",
+       "en": "Not used up",
+       "pt_BR": "Não se gastam",
+       "zh_CN": "不消耗",
+       "fr_FR": "Ne s'épuisent pas"
+      }
+     ],
+     "title": {
+      "ru": "Ртутные пули",
+      "en": "Quicksilver Bullets",
+      "pt_BR": "Balas de Mercúrio",
+      "zh_CN": "水银子弹",
+      "fr_FR": "Balles de vif-argent"
+     },
+     "description": {
+      "ru": "Огнестрельное оружие и огнестрел трансформируемого оружия их не тратят",
+      "en": "Firearms and the guns of trick weapons do not use them up",
+      "pt_BR": "Armas de fogo e as armas das armas transformáveis não as gastam",
+      "zh_CN": "火器和变形武器的枪械不消耗子弹",
+      "fr_FR": "Les armes à feu et celles des armes à transformation ne les épuisent pas"
+     },
+     "group": {
+      "ru": "Предметы",
+      "en": "Items",
+      "pt_BR": "Itens",
+      "zh_CN": "物品",
+      "fr_FR": "Objets"
+     }
+    },
+    {
+     "key": "cheat_consumables",
+     "type": "bool",
+     "store": "ini",
+     "default": false,
+     "title": {
+      "ru": "Бесконечные расходники",
+      "en": "Infinite consumables",
+      "pt_BR": "Consumíveis infinitos",
+      "zh_CN": "无限消耗品",
+      "fr_FR": "Consommables infinis"
+     },
+     "description": {
+      "ru": "Коктейли Молотова, ножи, камешки, масло, антидоты, бумага и подобное не расходуются (не флаконы и пули — они выше)",
+      "en": "Molotovs, throwing knives, pebbles, oil urns, antidotes, papers and the like are not used up (not vials or bullets: those are above)",
+      "pt_BR": "Coquetéis molotov, facas de arremesso, pedrinhas, urnas de óleo, antídotos, papéis e afins não se gastam (não frascos nem balas: estão acima)",
+      "zh_CN": "燃烧瓶、飞刀、小石子、油壶、解毒剂、纸张等不会消耗（不含采血瓶和子弹：见上方）",
+      "fr_FR": "Cocktails Molotov, couteaux de lancer, cailloux, urnes d'huile, antidotes, papiers et autres ne s'épuisent pas (pas les fioles ni les balles : voir plus haut)"
+     },
+     "group": {
+      "ru": "Предметы",
+      "en": "Items",
+      "pt_BR": "Itens",
+      "zh_CN": "物品",
+      "fr_FR": "Objets"
+     }
+    },
+    {
+     "key": "cheat_stamina",
+     "type": "bool",
+     "store": "ini",
+     "default": false,
+     "title": {
+      "ru": "Бесконечная выносливость",
+      "en": "Infinite stamina",
+      "pt_BR": "Estamina infinita",
+      "zh_CN": "无限耐力",
+      "fr_FR": "Endurance infinie"
+     },
+     "description": {
+      "ru": "Ваша выносливость всегда полная",
+      "en": "Your stamina stays full",
+      "pt_BR": "Sua estamina fica sempre cheia",
+      "zh_CN": "耐力始终保持全满",
+      "fr_FR": "Votre endurance reste pleine"
+     },
+     "group": {
+      "ru": "Персонаж",
+      "en": "Character",
+      "pt_BR": "Personagem",
+      "zh_CN": "角色",
+      "fr_FR": "Personnage"
+     }
+    },
+    {
+     "key": "cheat_stealth",
+     "type": "bool",
+     "store": "ini",
+     "default": false,
+     "title": {
+      "ru": "Скрытность",
+      "en": "Stealth",
+      "pt_BR": "Furtividade",
+      "zh_CN": "潜行",
+      "fr_FR": "Discrétion"
+     },
+     "description": {
+      "ru": "Враги вас не замечают, а шаги не слышны",
+      "en": "Enemies don't notice you and your steps make no noise",
+      "pt_BR": "Os inimigos não percebem você e seus passos não fazem barulho",
+      "zh_CN": "敌人不会发现你，脚步也不会发出声音",
+      "fr_FR": "Les ennemis ne vous remarquent pas et vos pas ne font aucun bruit"
+     },
+     "group": {
+      "ru": "Персонаж",
+      "en": "Character",
+      "pt_BR": "Personagem",
+      "zh_CN": "角色",
+      "fr_FR": "Personnage"
+     }
+    },
+    {
+     "key": "cheat_gun_range",
+     "type": "choice",
+     "store": "ini",
+     "default": "off",
+     "choices": [
+      {
+       "value": "off",
+       "ru": "Как в игре",
+       "en": "As in the game",
+       "pt_BR": "Como no jogo",
+       "zh_CN": "游戏默认",
+       "fr_FR": "Comme dans le jeu"
+      },
+      {
+       "value": "150",
+       "ru": "150%",
+       "en": "150%",
+       "pt_BR": "150%",
+       "zh_CN": "150%",
+       "fr_FR": "150 %"
+      },
+      {
+       "value": "200",
+       "ru": "200%",
+       "en": "200%",
+       "pt_BR": "200%",
+       "zh_CN": "200%",
+       "fr_FR": "200 %"
+      },
+      {
+       "value": "300",
+       "ru": "300%",
+       "en": "300%",
+       "pt_BR": "300%",
+       "zh_CN": "300%",
+       "fr_FR": "300 %"
+      }
+     ],
+     "title": {
+      "ru": "Дальность огнестрела",
+      "en": "Firearm range",
+      "pt_BR": "Alcance das armas de fogo",
+      "zh_CN": "火器射程",
+      "fr_FR": "Portée des armes à feu"
+     },
+     "description": {
+      "ru": "Как далеко летят пули пистолетов, ружей, мушкетонов и пушек",
+      "en": "How far firearm bullets fly (pistols, rifles, blunderbusses, cannons)",
+      "pt_BR": "Até onde voam as balas das armas de fogo (pistolas, rifles, bacamartes, canhões)",
+      "zh_CN": "火器子弹的飞行距离（手枪、步枪、喇叭枪、大炮）",
+      "fr_FR": "Jusqu'où volent les balles des armes à feu (pistolets, fusils, tromblons, canons)"
+     },
+     "group": {
+      "ru": "Персонаж",
+      "en": "Character",
+      "pt_BR": "Personagem",
+      "zh_CN": "角色",
+      "fr_FR": "Personnage"
+     }
+    },
+    {
+     "key": "cheat_echo_multiplier",
+     "type": "choice",
+     "store": "ini",
+     "default": "1",
+     "choices": [
+      {
+       "value": "1",
+       "ru": "Как в игре",
+       "en": "As in the game",
+       "pt_BR": "Como no jogo",
+       "zh_CN": "游戏默认",
+       "fr_FR": "Comme dans le jeu"
+      },
+      {
+       "value": "2",
+       "ru": "x2",
+       "en": "x2",
+       "pt_BR": "x2",
+       "zh_CN": "x2",
+       "fr_FR": "x2"
+      },
+      {
+       "value": "5",
+       "ru": "x5",
+       "en": "x5",
+       "pt_BR": "x5",
+       "zh_CN": "x5",
+       "fr_FR": "x5"
+      },
+      {
+       "value": "10",
+       "ru": "x10",
+       "en": "x10",
+       "pt_BR": "x10",
+       "zh_CN": "x10",
+       "fr_FR": "x10"
+      }
+     ],
+     "title": {
+      "ru": "Отголоски за врагов",
+      "en": "Echoes from enemies",
+      "pt_BR": "Ecos dos inimigos",
+      "zh_CN": "敌人给予的回响",
+      "fr_FR": "Échos des ennemis"
+     },
+     "description": {
+      "ru": "Враги и боссы дают больше отголосков. Уже загруженный враг может дать обычное количество, пока область не загрузится заново. Добавить отголоски или озарение — в меню порта в игре",
+      "en": "Enemies and bosses give more Blood Echoes. An enemy already loaded may give the normal amount until the area loads again. Echoes or insight can be added in the port's in-game menu",
+      "pt_BR": "Inimigos e chefes dão mais Ecos de Sangue. Um inimigo já carregado pode dar a quantidade normal até a área carregar de novo. Ecos ou discernimento podem ser adicionados no menu do port dentro do jogo",
+      "zh_CN": "敌人和首领给予更多血之回响。已加载的敌人在区域重新加载前可能仍给予正常数量。可在游戏内移植菜单中添加回响或启蒙",
+      "fr_FR": "Les ennemis et les boss donnent plus d'échos de sang. Un ennemi déjà chargé peut donner la quantité normale jusqu'au prochain chargement de la zone. Échos ou perspicacité s'ajoutent dans le menu du portage en jeu"
+     },
+     "group": {
+      "ru": "Отголоски крови",
+      "en": "Blood Echoes",
+      "pt_BR": "Ecos de Sangue",
+      "zh_CN": "血之回响",
+      "fr_FR": "Échos de sang"
+     }
+    }
+   ]
+  },
+  {
    "id": "online",
    "icon": "online",
    "title": {

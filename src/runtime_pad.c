@@ -49,6 +49,10 @@
 #include <SDL3/SDL.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#ifdef __linux__
+#include <sys/syscall.h>
+#include <unistd.h>
+#endif
 
 #define ERR_INVALID_ARG ((int32_t)0x80920001)
 #define ERR_INVALID_HANDLE ((int32_t)0x80920003)
@@ -125,14 +129,51 @@ static ABI int32_t pad_close(int32_t handle) {
 /* Reverse engineering: hardware watchpoints on the game's memory (runtime_rewatch.c). */
 void runtime_re_watch_tick(const void *pad_buffer, uint64_t reads);
 
+/* Who reads the pad, and how often (docs/CHEATS_PLAN.md, phase 0: the cheats run on these reads, and
+ * their calls into the game need the game's own thread). The first read of each thread is logged (up
+ * to 4 threads); with BB_PAD_TRACE also the reads per second every 10 s, and how many came while the
+ * game showed its world (bbgpu_world_active: not a loading screen). Under the pad lock. */
+static pthread_t pad_readers[4];
+static size_t pad_reader_count, world_reads;
+static void note_pad_reader(void) {
+    const pthread_t self=pthread_self();
+    for (size_t i=0;i<pad_reader_count;++i) if (pthread_equal(pad_readers[i],self)) return;
+    if (pad_reader_count>=sizeof(pad_readers)/sizeof(*pad_readers)) return;
+    pad_readers[pad_reader_count++]=self;
+    char name[16]="?";
+#ifndef _WIN32
+    pthread_getname_np(self,name,sizeof(name));
+#endif
+#ifdef __linux__
+    const long tid=(long)syscall(SYS_gettid);
+    printf("Runtime: the game reads the pad on thread '%s' (tid %ld%s)\n",name,tid,
+           tid==(long)getpid() ? ", the main thread" : "");
+#else
+    printf("Runtime: the game reads the pad on thread '%s'\n",name);
+#endif
+}
+static void report_pad_rate(uint64_t at_us) {
+    static uint64_t since; static size_t reads_then, world_then;
+    if (!since || at_us<since) { since=at_us; reads_then=reads; world_then=world_reads; return; }
+    if (at_us-since<10000000) return;
+    const double seconds=(double)(at_us-since)/1e6;
+    printf("Pad: %.1f reads/s over %.0f s, %.1f/s of them with the world shown, %zu reading thread%s\n",
+           (double)(reads-reads_then)/seconds,seconds,(double)(world_reads-world_then)/seconds,
+           pad_reader_count,pad_reader_count==1 ? "" : "s");
+    since=at_us; reads_then=reads; world_then=world_reads;
+}
+
 static ABI int32_t pad_read_state(int32_t handle, PadData *data) {
     if (handle!=PAD_HANDLE || !opened) return ERR_INVALID_HANDLE;
     if (!data) return ERR_INVALID_ARG;
-    pthread_mutex_lock(&lock);
-    sample(data); ++reads;
-    pthread_mutex_unlock(&lock);
     static int trace=-1;
     if (trace<0) { const char *v=bb_env("BB_PAD_TRACE"); trace=v && *v=='2' ? 2 : v && *v=='1'; }
+    pthread_mutex_lock(&lock);
+    sample(data); ++reads;
+    if (bbgpu_world_active()) ++world_reads;
+    note_pad_reader();
+    if (trace) report_pad_rate(data->timestamp);
+    pthread_mutex_unlock(&lock);
     if (trace==2) {
         /* Every change of the sticks with the read's time (camera taps, #325; BB_CAMLOG=1 shows
          * what the camera did). */
@@ -152,6 +193,8 @@ static ABI int32_t pad_read_state(int32_t handle, PadData *data) {
         }
     }
     runtime_re_watch_tick(data,(uint64_t)reads);
+    /* The game's main thread, once a frame (docs/CHEATS_PLAN.md, phase 0): the cheats' tick. */
+    bbgpu_game_tick();
     return 0;
 }
 /* Buffered read: the port samples once per call, so one entry is returned. */

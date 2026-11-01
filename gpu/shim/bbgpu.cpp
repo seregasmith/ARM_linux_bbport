@@ -10,6 +10,7 @@
 #include "bbport_overlay.h"
 #include "bbport_guest_hooks.h"
 #include "bbport_settings.h"
+#include "bloodborne_cheats.h"
 #include "game_profile.h"
 #include "bbport_copy.h"
 #include <sys/resource.h>
@@ -354,6 +355,13 @@ extern "C" void bbgpu_patch_image(unsigned char* image, uint64_t size) {
     BbGnmHooks::PatchImage(image, size);
     BbGameMenu::PatchImage(image, size);
     BbFrameRate::PatchImage(image, size);
+    // The cheats check the game's code at their sites (the startup patches are in by now) and keep
+    // the image's address; they run from bbgpu_game_tick.
+    BbCheats::Install(image, size);
+}
+
+extern "C" void bbgpu_game_tick(void) {
+    BbCheats::Tick();
 }
 
 extern "C" unsigned bbgpu_symbol_count(void) {

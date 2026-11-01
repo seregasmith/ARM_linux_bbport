@@ -231,6 +231,12 @@ export в шейдере, например GTX 10xx), применяют сме�
 *Вернуться и перезапустить*: копия встаёт на место до того, как игра прочитает сохранения).
 Хранится одна копия, в `user/savedata-snapshot/`; при возврате заменённые сохранения остаются в
 `user/savedata-snapshot.undo/`. Игра задумана без этого — включайте осознанно.
+**Читы, по умолчанию все выключены:** раздел *Читы* в лаунчере (на следующий запуск) и раздел
+*Читы* в меню порта в игре (применяются сразу): флаконы крови и ртутные пули не тратятся,
+бесконечные расходники, бесконечная выносливость, скрытность, дальность огнестрела, больше
+отголосков за врагов и кнопки, добавляющие отголоски или озарение. Выключенный чит возвращает
+данные игры, а полученное остаётся в сохранении. При игре по сети читы выключены. Перенесены из
+[Lantern Engine](https://github.com/Awakenchan/LanternEngine) ([план](docs/CHEATS_PLAN.md)).
 **DLC:** дампы дополнений клади в `user/addcont/<title id>/<метка>/` (как в shadPS4, например
 `user/addcont/CUSA03173/SPEXPANSIONDLC03` для The Old Hunters): каждая такая папка сообщается
 игре как установленное дополнение.
@@ -522,6 +528,9 @@ bbport распространяется по **GNU GPL v2 или новее** ([
 [shadPS4 v0.20](https://github.com/shadps4-emu/shadPS4/tree/v.0.20.0),
 бэкенд The Hunter's Dream из [droogie/bbhost](https://github.com/droogie/bbhost)
 (GPL-3.0-or-later, поэтому `libbbnet20.so` в целом — GPL-3.0-or-later),
+читы из [Lantern Engine](https://github.com/Awakenchan/LanternEngine) автора Awaken
+(GPL-3.0-or-later: `gpu/games/bloodborne_cheats*`, `gpu/shim/bbport_overlay_cheats.cpp`,
+`tools/cheat_sites.py`; поэтому `libbbgpu.so` в целом — GPL-3.0-or-later),
 [dxil-spirv](https://github.com/HansKristian-Work/dxil-spirv) (MIT, для сборки ассетов FSR 4.1.1),
 [wepoll](https://github.com/piscisaureus/wepoll) (BSD-2-Clause, онлайн-модуль Windows).
 Патчи игры — Kyo, Lance McDonald, auser1337, illusion, emoose и другие участники сообщества

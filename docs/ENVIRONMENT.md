@@ -522,7 +522,7 @@ Logs, dumps, traces, probes and experiments, for finding bugs. Most cost frame t
 | `BB_PAD_RECORD` | =file: F9 starts and stops recording the pad state into it |
 | `BB_PAD_REPLAY` | =file: plays a BB_PAD_RECORD recording |
 | `BB_PAD_TAP_TEST` | =ms: the right stick fully right for that long (#325) |
-| `BB_PAD_TRACE` | =1 / 2: gamepad buttons and touches as read (2: every sample) |
+| `BB_PAD_TRACE` | =1 / 2: gamepad buttons and touches as read (2: every sample), and the reads per second every 10 s |
 | `BB_PAGED_COPY_CROSSING` | =0 (tests): copy programs paged for size alone are not paged |
 | `BB_PAGED_VERIFY` | =1: verify every block a paged binding reads |
 | `BB_PARTIAL_TRACE` | set: partial image refreshes |

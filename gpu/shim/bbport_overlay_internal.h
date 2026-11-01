@@ -51,5 +51,6 @@ void OutputSection(BbSettings::Values& s);
 void GameEffectsSection(BbSettings::Values& s);
 void FrameRateLimitSection(BbSettings::Values& s);
 void SavePointSection(); // only with the launcher's save point switch
+void CheatsSection(BbSettings::Values& s);
 
 } // namespace BbOverlay::detail

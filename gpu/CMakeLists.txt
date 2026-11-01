@@ -327,6 +327,11 @@ target_include_directories(effect-flags-test PRIVATE shim)
 add_executable(settings-test EXCLUDE_FROM_ALL ../tests/test_settings.cpp shim/bbport_settings.cpp)
 target_compile_options(settings-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 target_include_directories(settings-test PRIVATE .. shim)
+# The cheats against a made-up game in memory (games/bloodborne_cheats.cpp): no game, no GPU.
+add_executable(cheats-test EXCLUDE_FROM_ALL ../tests/test_cheats.cpp games/bloodborne_cheats.cpp
+    games/bloodborne_cheats_state.cpp shim/bbport_settings.cpp)
+target_compile_options(cheats-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(cheats-test PRIVATE .. . shim games)
 
 # The clip-space matrices DLSS Frame Generation gets (upscale/camera_matrices.h): no GPU.
 add_executable(camera-matrices-test EXCLUDE_FROM_ALL ../tests/test_camera_matrices.cpp)
